@@ -16,14 +16,17 @@ SECRET_KEY = 'django-insecure-5fq5en44!hn66a@t+z-#wx_3+df*+14mtx-oz+85v4oeg2nr-3
 DEBUG = True
 
 ALLOWED_HOSTS = [
+    "*",
     "127.0.0.1",
     "localhost",
-    "trench-probing-decimeter.ngrok-free.dev",
-    "unaligned-faceted-gander.ngrok-free.dev",
     "autopilot-elude-ungloved.ngrok-free.dev",
 ]
 
-CORS_ALLOW_ALL_ORIGINS = False
+# 🌐 100% CORS Permission Allowed for Frontend
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = ["*"]
+CORS_ALLOW_METHODS = ["*"]
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -32,20 +35,15 @@ CORS_ALLOWED_ORIGINS = [
     "https://autopilot-elude-ungloved.ngrok-free.dev",
 ]
 
-CORS_ALLOW_CREDENTIALS = False
-
 CSRF_TRUSTED_ORIGINS = [
-    "http://ec2-44-200-143-253.compute-1.amazonaws.com:86",
-    "https://trench-probing-decimeter.ngrok-free.dev",
-    "https://unaligned-faceted-gander.ngrok-free.dev",
-    "https://autopilot-elude-ungloved.ngrok-free.dev",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:3000",
     "https://*.ngrok-free.dev",
+    "https://autopilot-elude-ungloved.ngrok-free.dev",
 ]
 
 # Application definition
-
 INSTALLED_APPS = [
     'daphne',
     'corsheaders',
@@ -79,7 +77,7 @@ ROOT_URLCONF = 'crm_api.urls'
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',  # 👈 .django. சேர்க்கப்பட்டது
         'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {

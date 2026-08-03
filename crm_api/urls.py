@@ -4,7 +4,10 @@ from django.conf import settings
 from django.urls import path, include
 from telecalling.views.whatsapp_view import *
 
+from django.http import HttpResponse
+
 urlpatterns = [
+    path('', lambda request: HttpResponse("CRM API Backend Server Running Successfully!")),
     path('admin/', admin.site.urls),
     path('telecalling/', include('telecalling.urls')),
 

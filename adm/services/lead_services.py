@@ -11,9 +11,9 @@ from openpyxl.utils import get_column_letter
 
 from telecalling.models import (
     Lead, PaymentInfo, PaymentHistory, LossLeadDetail, FollowUp,
-    CallDetails, CampaignName, LeadSource, PipelineStage, SelectTag, User, CoursePlan
+    CallDetails, CampaignName, LeadSource, PipelineStage,
+    User, CoursePlan, CourseName, SelectTag
 )
-
 
 def get_user_display_name(user_obj):
     
@@ -484,11 +484,10 @@ def upload_lead_excel_admin(file_obj, user=None):
 def export_all_leads_admin(**data):
     """
     Admin Leads Page -> Export to Excel (.xlsx) Service.
-    Robust handling for lead_filter_type, filter_type, stage, tab.
-    Exports exact tab data matching UI table.
+    Lime Green Header Styling (#84C225) & Spacious Column Widths matching reference image.
     """
     try:
-        # 1. Normalize filter type from any incoming key
+        # 1. Normalize filter type
         raw_filter = (
             data.get("lead_filter_type") or 
             data.get("filter_type") or 
@@ -498,7 +497,6 @@ def export_all_leads_admin(**data):
         )
         lead_filter_type = str(raw_filter).lower().strip()
         
-        # Explicitly set lead_filter_type in data
         data["lead_filter_type"] = lead_filter_type
         data['page_size'] = "all"
 
@@ -511,53 +509,47 @@ def export_all_leads_admin(**data):
         ws = wb.active
         ws.title = f"Leads_{lead_filter_type}"
 
-        # 4. 16 Column Headers matching UI
+        # 🎨 4. Exact 14 Column Headers matching reference image
         headers = [
-            # "S.No", 
-            "Full Name", 
-            "Mobile No", 
-            "Assigned To", 
-            "Stage", 
-            "Pipeline", 
-            "Campaign", 
-            "Source", 
-            "Course Plan", 
-            "Course", 
-            "Next Followup", 
-            "Course Fee", 
-            "Pending Amount", 
-            "Last Contacted", 
-            "Last Conversation", 
-            "Created Date"
+            "s_no", 
+            "id", 
+            "full_name", 
+            "mobile_no", 
+            "email", 
+            "tag", 
+            "stage", 
+            "source", 
+            "campaign_name", 
+            "course_plan", 
+            "course_name", 
+            "pending_amount", 
+            "total_amount", 
+            "created_at"
         ]
         ws.append(headers)
 
-        # 5. Populate Exact Row Data
-        # for lead in leads:
+        # 5. Populate Data Rows
         for idx, lead in enumerate(leads, start=1):
             ws.append([
-                # lead.get("s_no"),                                                      # 1. S.No
-                lead.get("full_name") or "",                                           # 2. Full Name
-                lead.get("mobile_no") or "",                                           # 3. Mobile No
-                lead.get("assigned_to") or "",                                         # 4. Assigned To
-                lead.get("stage") or "",                                               # 5. Stage
-                lead.get("pipeline") or "",                                            # 6. Pipeline
-                lead.get("campaign") or "",                                            # 7. Campaign
-                lead.get("source") or "",                                              # 8. Source
-                lead.get("course_plan") or "",                                         # 9. Course Plan
-                lead.get("course") or "",                                              # 10. Course
-                str(lead.get("next_followup")) if lead.get("next_followup") else "",  # 11. Next Followup
-                lead.get("amount") or 0,                                               # 12. Course Fee
-                lead.get("pending_amount") or 0,                                       # 13. Pending Amount
-                str(lead.get("last_contacted")) if lead.get("last_contacted") else "",# 14. Last Contacted
-                lead.get("last_conversation_outcome") or "",                           # 15. Last Conversation
-                str(lead.get("created")) if lead.get("created") else ""                # 16. Created Date
+                idx,                                                                   # s_no
+                lead.get("id"),                                                        # id
+                lead.get("full_name") or "",                                           # full_name
+                lead.get("mobile_no") or "",                                           # mobile_no
+                lead.get("email") or "",                                              # email
+                lead.get("tag") or "new",                                              # tag
+                lead.get("stage") or "",                                               # stage
+                lead.get("source") or "",                                              # source
+                lead.get("campaign") or "",                                            # campaign_name
+                lead.get("course_plan") or "",                                         # course_plan
+                lead.get("course") or "",                                              # course_name
+                lead.get("pending_amount") or 0,                                       # pending_amount
+                lead.get("amount") or 0,                                               # total_amount
+                str(lead.get("created")) if lead.get("created") else ""                # created_at
             ])
 
-
-        # 🎨 STYLING: Lime Green Header (#84C225) & Auto Column Width
-        header_fill = PatternFill(start_color="84C225", end_color="84C225", fill_type="solid")
-        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        # 🎨 6. LIME GREEN HEADER STYLING (#84C225) & BORDERS
+        header_fill = PatternFill(start_color="84C225", end_color="84C225", fill_type="solid")  # Bright Lime Green
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")                   # Bold White Text
         data_font = Font(name="Calibri", size=10)
         center_align = Alignment(horizontal="center", vertical="center")
         left_align = Alignment(horizontal="left", vertical="center")
@@ -569,28 +561,25 @@ def export_all_leads_admin(**data):
             bottom=Side(style='thin', color='D9D9D9')
         )
 
-        # Apply Header Styling
-        ws.row_dimensions[1].height = 24
+       # Apply Header Styling (Center Aligned)
+        ws.row_dimensions[1].height = 26
         for col_num in range(1, len(headers) + 1):
             cell = ws.cell(row=1, column=col_num)
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = center_align
             cell.border = thin_border
-
-        # Apply Data Rows Styling
+            
+        # 🎯 Apply Data Rows Styling (Neat Center Alignment for ALL Cells)
         for row_num in range(2, ws.max_row + 1):
-            ws.row_dimensions[row_num].height = 20
+            ws.row_dimensions[row_num].height = 22
             for col_num in range(1, len(headers) + 1):
                 cell = ws.cell(row=row_num, column=col_num)
                 cell.font = data_font
                 cell.border = thin_border
-                if col_num in [1, 2]:
-                    cell.alignment = center_align
-                else:
-                    cell.alignment = left_align
+                cell.alignment = center_align
 
-        # Auto Column Width (Spacious Columns)
+        # 📐 7. AUTO COLUMN WIDTH (Spacious Display)
         for col in ws.columns:
             max_len = 0
             col_letter = get_column_letter(col[0].column)
@@ -598,10 +587,9 @@ def export_all_leads_admin(**data):
                 val_str = str(cell.value or '')
                 if len(val_str) > max_len:
                     max_len = len(val_str)
-            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+            ws.column_dimensions[col_letter].width = max(max_len + 6, 16)
 
-
-        # 6. Dynamic File Name & Save
+        # 8. Save & Return File Link
         file_name = f"Admin_Leads_{lead_filter_type}.xlsx"
         export_dir = os.path.join(settings.MEDIA_ROOT, 'exports')
         os.makedirs(export_dir, exist_ok=True)
@@ -620,7 +608,6 @@ def export_all_leads_admin(**data):
 
     except Exception as e:
         raise APIException(str(e))
-    
     
     
     
@@ -1150,9 +1137,10 @@ def get_mark_as_lost_info_admin(lead_id):
 def mark_as_lost_admin(**data):
     """
     Submit Mark as Lost Modal -> Update Lead to LOST (Stage ID 4) & Record Loss Details.
+    Robustly handles both string names and integer IDs from frontend.
     """
     try:
-        lead_id = data.get("lead_id")
+        lead_id = data.get("lead_id") or data.get("id")
         if not lead_id:
             raise APIException("Lead ID is required")
 
@@ -1160,8 +1148,8 @@ def mark_as_lost_admin(**data):
         if not lead:
             raise APIException("Lead not found")
 
-        main_reason_id = data.get("main_reason_id")
-        detailed_reason = data.get("detailed_reason") or ""
+        main_reason_val = data.get("main_reason_id") or data.get("main_reason") or data.get("reason")
+        detailed_reason = data.get("detailed_reason") or data.get("remarks") or data.get("reason") or ""
 
         # 1. Update Lead Pipeline Stage to LOST (Stage ID 4)
         lost_stage = PipelineStage.objects.filter(id=4).first() or PipelineStage.objects.filter(Q(name__icontains="loss") | Q(name__icontains="lost")).first()
@@ -1169,8 +1157,13 @@ def mark_as_lost_admin(**data):
             lead.pipeline_stage = lost_stage
             lead.save()
 
-        # 2. Resolve Main Reason Tag
-        main_reason_obj = SelectTag.objects.filter(id=main_reason_id).first() if main_reason_id else None
+        # 2. Resolve Main Reason Tag (Handles both integer IDs and string reason names)
+        main_reason_obj = None
+        if main_reason_val:
+            if str(main_reason_val).isdigit():
+                main_reason_obj = SelectTag.objects.filter(id=int(main_reason_val)).first()
+            else:
+                main_reason_obj = SelectTag.objects.filter(Q(name__icontains=str(main_reason_val))).first()
 
         # 3. Create or Update LossLeadDetail
         loss_obj, created = LossLeadDetail.objects.get_or_create(
@@ -1183,7 +1176,8 @@ def mark_as_lost_admin(**data):
             }
         )
         if not created:
-            loss_obj.main_reason = main_reason_obj or loss_obj.main_reason
+            if main_reason_obj:
+                loss_obj.main_reason = main_reason_obj
             loss_obj.detailed_reason = detailed_reason
             loss_obj.save()
 
@@ -1192,6 +1186,106 @@ def mark_as_lost_admin(**data):
             "message": f"Lead '{lead.full_name}' marked as LOST successfully!",
             "lead_id": lead.id,
             "stage": "Lost"
+        }
+
+    except Exception as e:
+        raise APIException(str(e))
+    
+    
+    
+    
+# ------------------------------edit lead admin-----------------------------
+
+def edit_lead_admin(**data):
+    """
+    Admin Leads Page -> Edit Lead Modal Save API.
+    Updates Lead Info and PaymentInfo records safely.
+    """
+    try:
+        lead_id = data.get("lead_id")
+        if not lead_id:
+            raise APIException("Lead ID is required")
+
+        lead = Lead.objects.filter(id=lead_id).first()
+        if not lead:
+            raise APIException("Lead not found")
+
+        # 1. Name Resolution
+        full_name = data.get("full_name")
+        if not full_name:
+            fn = data.get("first_name") or ""
+            ln = data.get("last_name") or ""
+            full_name = f"{fn} {ln}".strip()
+        if full_name:
+            lead.full_name = full_name
+
+        # 2. Basic Info Updates
+        if data.get("mobile_no"):
+            lead.mobile_no = data.get("mobile_no")
+        if "email" in data:
+            lead.email = data.get("email")
+        if "alt_mobile" in data:
+            lead.alternative_mobile = data.get("alt_mobile")
+
+        # 3. Foreign Key Resolutions (Supports both Names and IDs)
+        assigned_val = data.get("assigned_to")
+        if assigned_val:
+            user_obj = User.objects.filter(Q(id=assigned_val if str(assigned_val).isdigit() else 0) | Q(username__icontains=assigned_val) | Q(first_name__icontains=assigned_val)).first()
+            if user_obj:
+                lead.assigned_to = user_obj
+
+        plan_val = data.get("course_plan")
+        if plan_val:
+            plan_obj = CoursePlan.objects.filter(Q(id=plan_val if str(plan_val).isdigit() else 0) | Q(courseplan__icontains=plan_val)).first()
+            if plan_obj:
+                lead.course_plan = plan_obj
+
+        course_val = data.get("course")
+        if course_val:
+            course_name_obj = CourseName.objects.filter(Q(id=course_val if str(course_val).isdigit() else 0) | Q(coursename__icontains=course_val)).first()
+            if course_name_obj:
+                lead.course_name = course_name_obj
+
+        campaign_val = data.get("campaign")
+        if campaign_val:
+            camp_obj = CampaignName.objects.filter(Q(id=campaign_val if str(campaign_val).isdigit() else 0) | Q(name__icontains=campaign_val)).first()
+            if camp_obj:
+                lead.campaign = camp_obj
+
+        stage_val = data.get("stage")
+        if stage_val:
+            stage_obj = PipelineStage.objects.filter(Q(id=stage_val if str(stage_val).isdigit() else 0) | Q(name__icontains=stage_val)).first()
+            if stage_obj:
+                lead.pipeline_stage = stage_obj
+
+        lead.save()
+
+        # 4. Safe Payment Info Updates (Prevents NULL constraint error)
+        amount_paid = data.get("amount_paid")
+        pending_amount = data.get("pending_amount")
+        if amount_paid is not None or pending_amount is not None:
+            ap_val = float(amount_paid) if amount_paid is not None else 0.0
+            pa_val = float(pending_amount) if pending_amount is not None else 0.0
+            payment_obj, created = PaymentInfo.objects.get_or_create(
+                lead=lead,
+                defaults={
+                    'amount_paid': ap_val,
+                    'pending_amount': pa_val,
+                    'is_full_payment': (pa_val == 0)
+                }
+            )
+            if not created:
+                if amount_paid is not None:
+                    payment_obj.amount_paid = float(amount_paid)
+                if pending_amount is not None:
+                    payment_obj.pending_amount = float(pending_amount)
+                payment_obj.is_full_payment = (payment_obj.pending_amount == 0)
+                payment_obj.save()
+
+        return {
+            "status": "success",
+            "message": "Lead details updated successfully!",
+            "lead_id": lead.id
         }
 
     except Exception as e:

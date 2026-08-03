@@ -8,7 +8,8 @@ from ..services.lead_services import (
     fetch_all_leads_admin, add_new_lead_admin, get_add_lead_dropdowns_admin,
     upload_lead_excel_admin, export_all_leads_admin, get_filter_dropdowns_admin,
     fetch_pipeline_leads_admin, fetch_lead_details_admin,
-    get_mark_as_won_info_admin, mark_as_won_admin,get_mark_as_lost_info_admin, mark_as_lost_admin
+    get_mark_as_won_info_admin, mark_as_won_admin, get_mark_as_lost_info_admin, 
+    mark_as_lost_admin, edit_lead_admin
 )
 from telecalling.tasks.api_log_task import api_history_log
 
@@ -180,16 +181,20 @@ class ExportAllLeadsAdmin(APIView):
     
     
     
-    
+
 # -------------------------------get_filter_dropdowns_admin-----------------------
 
 @authentication_classes([])
 @permission_classes([])
 class GetFilterDropdownsAdmin(APIView):
     """
-    Admin Leads Page -> Filter Modal Dropdowns API.
+    Admin Leads Page -> Filter Modal Dropdowns API (Supports both GET & POST).
     """
     def get(self, request):
+        result = get_filter_dropdowns_admin()
+        return Response({"data": result}, status=status.HTTP_200_OK)
+
+    def post(self, request):
         result = get_filter_dropdowns_admin()
         return Response({"data": result}, status=status.HTTP_200_OK)
     
@@ -378,10 +383,16 @@ class MarkAsLostAdmin(APIView):
     Submit Mark as Lost Modal API.
     """
     class InputSerializers(serializers.Serializer):
-        lead_id = serializers.IntegerField(required=True)
+        lead_id = serializers.IntegerField(required=False, allow_null=True)
+        id = serializers.IntegerField(required=False, allow_null=True)
+        stage = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         main_reason_id = serializers.IntegerField(required=False, allow_null=True)
+        main_reason = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         sub_reason_id = serializers.IntegerField(required=False, allow_null=True)
+        sub_reason = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         detailed_reason = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        reason = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        remarks = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def post(self, request):
         serializer = self.InputSerializers(data=request.data)
@@ -400,3 +411,56 @@ class MarkAsLostAdmin(APIView):
         api_history_log(log_data)
 
         return Response(result, status=status.HTTP_200_OK)
+    
+    
+    
+    
+
+# --------------------------------------edit_lead_admin----------------------------------
+
+@authentication_classes([])
+@permission_classes([])
+class EditLeadAdmin(APIView):
+    """
+    Admin Leads Page -> Edit Lead Modal Save API.
+    """
+    class InputSerializers(serializers.Serializer):
+        lead_id = serializers.IntegerField(required=True)
+        first_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        last_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        full_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        mobile_no = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        alt_mobile = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        email = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        created_at = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        assigned_to = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        course_plan = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        course = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        pipeline = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        campaign = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        stage = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        tag = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        amount_paid = serializers.FloatField(required=False, allow_null=True)
+        pending_amount = serializers.FloatField(required=False, allow_null=True)
+
+    def post(self, request):
+        serializer = self.InputSerializers(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = edit_lead_admin(**serializer.validated_data)
+
+        log_data = {
+            'user_id': request.user.id if request.user.id else None,
+            'api_name': request.path,
+            'method': request.method,
+            'request_payload': serializer.validated_data,
+            'response_payload': {"status": result.get("status"), "message": result.get("message")},
+            'status_code': 200
+        }
+        api_history_log(log_data)
+
+        return Response(result, status=status.HTTP_200_OK)
+    
+    
+    
+    
