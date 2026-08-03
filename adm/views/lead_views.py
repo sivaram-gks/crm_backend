@@ -4,7 +4,12 @@ from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 
-from ..services.lead_services import fetch_all_leads_admin, add_new_lead_admin,get_add_lead_dropdowns_admin, upload_lead_excel_admin, export_all_leads_admin, get_filter_dropdowns_admin, fetch_pipeline_leads_admin, fetch_lead_details_admin
+from ..services.lead_services import (
+    fetch_all_leads_admin, add_new_lead_admin, get_add_lead_dropdowns_admin,
+    upload_lead_excel_admin, export_all_leads_admin, get_filter_dropdowns_admin,
+    fetch_pipeline_leads_admin, fetch_lead_details_admin,
+    get_mark_as_won_info_admin, mark_as_won_admin,get_mark_as_lost_info_admin, mark_as_lost_admin
+)
 from telecalling.tasks.api_log_task import api_history_log
 
 @authentication_classes([])
@@ -252,6 +257,144 @@ class FetchLeadDetailsAdmin(APIView):
             'method': request.method,
             'request_payload': serializer.validated_data,
             'response_payload': {"status": result.get("status")},
+            'status_code': 200
+        }
+        api_history_log(log_data)
+
+        return Response(result, status=status.HTTP_200_OK)
+    
+    
+    
+    
+# ---------------------------get_mark_as_won_info_admin-----------------------------
+
+@authentication_classes([])
+@permission_classes([])
+class GetMarkAsWonInfoAdmin(APIView):
+    """
+    Get Mark as Won Modal Details API (POST with Serializer Validation).
+    """
+    class InputSerializers(serializers.Serializer):
+        lead_id = serializers.IntegerField(required=True)
+
+    def post(self, request):
+        # 🔴 Validating lead_id via Serializer before proceeding
+        serializer = self.InputSerializers(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        lead_id = serializer.validated_data.get("lead_id")
+        result = get_mark_as_won_info_admin(lead_id)
+
+        log_data = {
+            'user_id': request.user.id if request.user.id else None,
+            'api_name': request.path,
+            'method': request.method,
+            'request_payload': serializer.validated_data,
+            'response_payload': {"status": result.get("status")},
+            'status_code': 200
+        }
+        api_history_log(log_data)
+
+        return Response(result, status=status.HTTP_200_OK)
+    
+    
+    
+    
+# --------------------------------------mark_as_won_admin----------------------------------
+
+@authentication_classes([])
+@permission_classes([])
+class MarkAsWonAdmin(APIView):
+    """
+    Submit Mark as Won Modal API.
+    """
+    class InputSerializers(serializers.Serializer):
+        lead_id = serializers.IntegerField(required=True)
+        paid_through = serializers.CharField(required=False, default="Online")
+        amount_paid = serializers.FloatField(required=False, default=0)
+        is_full_payment = serializers.BooleanField(required=False, default=False)
+        due_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        payment_status = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        next_followup = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        summary = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    def post(self, request):
+        serializer = self.InputSerializers(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = mark_as_won_admin(**serializer.validated_data)
+
+        log_data = {
+            'user_id': request.user.id if request.user.id else None,
+            'api_name': request.path,
+            'method': request.method,
+            'request_payload': serializer.validated_data,
+            'response_payload': {"status": result.get("status"), "message": result.get("message")},
+            'status_code': 200
+        }
+        api_history_log(log_data)
+
+        return Response(result, status=status.HTTP_200_OK)
+    
+    
+    
+
+
+# ---------------------------get_mark_as_lost_info_admin, mark_as_lost_admin--------------------
+
+@authentication_classes([])
+@permission_classes([])
+class GetMarkAsLostInfoAdmin(APIView):
+    """
+    Get Mark as Lost Modal Details API (POST).
+    """
+    class InputSerializers(serializers.Serializer):
+        lead_id = serializers.IntegerField(required=True)
+
+    def post(self, request):
+        serializer = self.InputSerializers(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        lead_id = serializer.validated_data.get("lead_id")
+        result = get_mark_as_lost_info_admin(lead_id)
+
+        log_data = {
+            'user_id': request.user.id if request.user.id else None,
+            'api_name': request.path,
+            'method': request.method,
+            'request_payload': serializer.validated_data,
+            'response_payload': {"status": result.get("status")},
+            'status_code': 200
+        }
+        api_history_log(log_data)
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+@authentication_classes([])
+@permission_classes([])
+class MarkAsLostAdmin(APIView):
+    """
+    Submit Mark as Lost Modal API.
+    """
+    class InputSerializers(serializers.Serializer):
+        lead_id = serializers.IntegerField(required=True)
+        main_reason_id = serializers.IntegerField(required=False, allow_null=True)
+        sub_reason_id = serializers.IntegerField(required=False, allow_null=True)
+        detailed_reason = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    def post(self, request):
+        serializer = self.InputSerializers(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = mark_as_lost_admin(**serializer.validated_data)
+
+        log_data = {
+            'user_id': request.user.id if request.user.id else None,
+            'api_name': request.path,
+            'method': request.method,
+            'request_payload': serializer.validated_data,
+            'response_payload': {"status": result.get("status"), "message": result.get("message")},
             'status_code': 200
         }
         api_history_log(log_data)

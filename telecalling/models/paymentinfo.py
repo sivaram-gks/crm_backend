@@ -26,21 +26,21 @@ class PaymentInfo(SafeDeleteModel):
     def save(self, *args, **kwargs):
 
         # ✅ course fee
-        total_fee = self.lead.course.course_fees
+        if self.lead and self.lead.course and getattr(self.lead.course, 'course_fees', None):
+            total_fee = self.lead.course.course_fees
+        else:
+            total_fee = 16000
 
         # ✅ pending calculation
-        self.pending_amount = total_fee - self.amount_paid
-
-        # ✅ prevent negative
-        if self.pending_amount < 0:
-            self.pending_amount = 0
+        amount_paid = self.amount_paid or 0
+        self.pending_amount = max(total_fee - amount_paid, 0)
 
         # ✅ status
-        if self.amount_paid >= total_fee:
+        if amount_paid >= total_fee:
             self.is_full_payment = True
             self.payment_status = 1
 
-        elif self.amount_paid > 0:
+        elif amount_paid > 0:
             self.is_full_payment = False
             self.payment_status = 2
 

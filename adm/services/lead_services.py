@@ -10,8 +10,8 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from telecalling.models import (
-    Lead, PaymentInfo, LossLeadDetail, FollowUp,
-    CallDetails, CampaignName, LeadSource, PipelineStage, User, CoursePlan
+    Lead, PaymentInfo, PaymentHistory, LossLeadDetail, FollowUp,
+    CallDetails, CampaignName, LeadSource, PipelineStage, SelectTag, User, CoursePlan
 )
 
 
@@ -946,6 +946,252 @@ def fetch_lead_details_admin(**data):
                 "lead_info": lead_info,
                 "timeline": timeline
             }
+        }
+
+    except Exception as e:
+        raise APIException(str(e))
+    
+    
+    
+# ----------------------------get_mark_as_won_info_admin--------------------------
+
+def get_mark_as_won_info_admin(lead_id):
+    """
+    Mark as Won Modal Open -> Fetch lead summary & payment info.
+    Safe handling when lead.course is None.
+    """
+    try:
+        lead = Lead.objects.select_related("assigned_to", "pipeline_stage", "course", "course_name").filter(id=lead_id).first()
+        if not lead:
+            raise APIException("Lead not found")
+
+        payment_info = PaymentInfo.objects.filter(lead=lead).first()
+        
+        # 🛡️ Safe Course Fee Check (Prevents NoneType error if lead.course is None)
+        course_fee = 16000
+        if lead.course and getattr(lead.course, 'course_fees', None):
+            course_fee = lead.course.course_fees
+
+        paid_amount = payment_info.amount_paid if payment_info else 0
+        pending_amount = max(course_fee - paid_amount, 0)
+
+        lead_info = {
+            "lead_id": lead.id,
+            "full_name": lead.full_name or "",
+            "mobile_no": lead.mobile_no or "",
+            "assigned_to": get_user_display_name(lead.assigned_to) or "Unassigned",
+            "current_stage": lead.pipeline_stage.name if lead.pipeline_stage else "Hot",
+            "course_fee": course_fee,
+            "amount_paid": paid_amount,
+            "pending_amount": pending_amount
+        }
+
+        payment_modes = ["Online", "Cash", "UPI", "Bank Transfer", "Cheque"]
+        lead_stages = ["Hot", "Warm", "Cold"]
+
+        return {
+            "status": "success",
+            "data": {
+                "lead_info": lead_info,
+                "payment_modes": payment_modes,
+                "lead_stages": lead_stages
+            }
+        }
+    except Exception as e:
+        raise APIException(str(e))
+
+
+def mark_as_won_admin(**data):
+    """
+    Submit Mark as Won Modal -> Update Lead to WON & Record Payment Details.
+    100% Safe course fee calculation preventing NoneType AttributeError.
+    """
+    try:
+        lead_id = data.get("lead_id")
+        if not lead_id:
+            raise APIException("Lead ID is required")
+
+        lead = Lead.objects.select_related("course").filter(id=lead_id).first()
+        if not lead:
+            raise APIException("Lead not found")
+
+        paid_through = data.get("paid_through") or "Online"
+        amount_paid = float(data.get("amount_paid") or 0)
+        is_full_payment = bool(data.get("is_full_payment", False))
+        due_date = data.get("due_date")
+        summary = data.get("summary") or ""
+        next_followup = data.get("next_followup")
+
+        # 1. Update Lead Pipeline Stage to WON (Stage ID 3)
+        won_stage = PipelineStage.objects.filter(id=3).first() or PipelineStage.objects.filter(name__icontains="won").first()
+        if won_stage:
+            lead.pipeline_stage = won_stage
+            lead.save()
+
+        # 🛡️ 2. Safe Course Fee Calculation (Prevents NoneType error if lead.course is None)
+        course_fee = 16000
+        if lead.course and getattr(lead.course, 'course_fees', None):
+            course_fee = lead.course.course_fees
+
+        if is_full_payment:
+            amount_paid = course_fee
+            pending_amount = 0
+        else:
+            pending_amount = max(course_fee - amount_paid, 0)
+
+        # 3. Create or Update PaymentInfo
+        payment_obj, created = PaymentInfo.objects.get_or_create(
+            lead=lead,
+            defaults={
+                'amount_paid': amount_paid,
+                'pending_amount': pending_amount,
+                'is_full_payment': (pending_amount == 0),
+                'summary': summary
+            }
+        )
+        if not created:
+            payment_obj.amount_paid = (payment_obj.amount_paid or 0) + amount_paid
+            payment_obj.pending_amount = pending_amount
+            payment_obj.is_full_payment = (pending_amount == 0)
+            payment_obj.summary = summary
+            payment_obj.save()
+
+        # 4. Create PaymentHistory Record
+        PaymentHistory.objects.create(
+            payment=payment_obj,
+            paid_amount=amount_paid,
+            pending_amount=pending_amount,
+            notes=f"Paid via {paid_through}. {summary}",
+            due_date=due_date if due_date else None
+        )
+
+        # 5. Create FollowUp if next_followup date is provided
+        if next_followup and str(next_followup).strip() != "":
+            FollowUp.objects.create(
+                lead=lead,
+                telecaller=lead.assigned_to or User.objects.filter(is_active=True).first(),
+                scheduled_at=next_followup,
+                notes=f"Followup after Won ({summary})",
+                is_attended=False
+            )
+
+        return {
+            "status": "success",
+            "message": f"Lead '{lead.full_name}' marked as WON successfully!",
+            "lead_id": lead.id,
+            "stage": "Won",
+            "amount_paid": payment_obj.amount_paid,
+            "pending_amount": payment_obj.pending_amount
+        }
+
+    except Exception as e:
+        raise APIException(str(e))
+    
+    
+    
+# -----------------------------get_mark_as_lost_info_admin----------------------
+
+def get_mark_as_lost_info_admin(lead_id):
+    """
+    Mark as Lost Modal Open -> Fetch lead summary (attempts, last contacted, lead age) & loss reasons.
+    """
+    try:
+        lead = Lead.objects.select_related("assigned_to", "pipeline_stage").filter(id=lead_id).first()
+        if not lead:
+            raise APIException("Lead not found")
+
+        calls = CallDetails.objects.filter(lead=lead).order_by("-created_at")
+        total_attempts = calls.count()
+        latest_call = calls.first()
+
+        # Lead Age Calculation (e.g., "3 Months" or "15 Days")
+        created_dt = lead.enquiry_date or lead.created_at
+        if created_dt:
+            delta_days = (timezone.now() - created_dt).days
+            if delta_days >= 30:
+                lead_age = f"{delta_days // 30} Months"
+            else:
+                lead_age = f"{delta_days} Days"
+        else:
+            lead_age = "1 Month"
+
+        last_contacted_str = latest_call.created_at.strftime("%d %b, %I:%M %p") if (latest_call and latest_call.created_at) else "No calls yet"
+        last_conversation_str = latest_call.conversation_summary if latest_call else "No conversation recorded"
+        attempts_str = f"{total_attempts} Calls done ({last_contacted_str})"
+
+        lead_info = {
+            "lead_id": lead.id,
+            "full_name": lead.full_name or "",
+            "mobile_no": lead.mobile_no or "",
+            "assigned_to": get_user_display_name(lead.assigned_to) or "Unassigned",
+            "total_attempts": attempts_str,
+            "last_conversation": last_conversation_str,
+            "last_contacted": last_contacted_str,
+            "lead_age": lead_age,
+            "current_stage": lead.pipeline_stage.name if lead.pipeline_stage else "Cold"
+        }
+
+        # Loss Reasons from SelectTag model
+        tags = SelectTag.objects.all()
+        main_reasons = [{"id": t.id, "name": t.name} for t in tags]
+
+        return {
+            "status": "success",
+            "data": {
+                "lead_info": lead_info,
+                "main_reasons": main_reasons,
+                "sub_reasons": main_reasons
+            }
+        }
+    except Exception as e:
+        raise APIException(str(e))
+
+
+def mark_as_lost_admin(**data):
+    """
+    Submit Mark as Lost Modal -> Update Lead to LOST (Stage ID 4) & Record Loss Details.
+    """
+    try:
+        lead_id = data.get("lead_id")
+        if not lead_id:
+            raise APIException("Lead ID is required")
+
+        lead = Lead.objects.filter(id=lead_id).first()
+        if not lead:
+            raise APIException("Lead not found")
+
+        main_reason_id = data.get("main_reason_id")
+        detailed_reason = data.get("detailed_reason") or ""
+
+        # 1. Update Lead Pipeline Stage to LOST (Stage ID 4)
+        lost_stage = PipelineStage.objects.filter(id=4).first() or PipelineStage.objects.filter(Q(name__icontains="loss") | Q(name__icontains="lost")).first()
+        if lost_stage:
+            lead.pipeline_stage = lost_stage
+            lead.save()
+
+        # 2. Resolve Main Reason Tag
+        main_reason_obj = SelectTag.objects.filter(id=main_reason_id).first() if main_reason_id else None
+
+        # 3. Create or Update LossLeadDetail
+        loss_obj, created = LossLeadDetail.objects.get_or_create(
+            lead=lead,
+            defaults={
+                "main_reason": main_reason_obj,
+                "detailed_reason": detailed_reason,
+                "reported_by": lead.assigned_to,
+                "created_by": "Admin"
+            }
+        )
+        if not created:
+            loss_obj.main_reason = main_reason_obj or loss_obj.main_reason
+            loss_obj.detailed_reason = detailed_reason
+            loss_obj.save()
+
+        return {
+            "status": "success",
+            "message": f"Lead '{lead.full_name}' marked as LOST successfully!",
+            "lead_id": lead.id,
+            "stage": "Lost"
         }
 
     except Exception as e:
