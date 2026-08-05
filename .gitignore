@@ -6,6 +6,7 @@ __pycache__/
 # Virtual environment
 venv/
 .env
+.env.*
 
 # Django generated files
 db.sqlite3
@@ -18,3 +19,12 @@ staticfiles/
 
 # Logs
 *.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python packaging
+*.egg-info/
+dist/
+build/
