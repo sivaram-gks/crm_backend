@@ -1202,7 +1202,7 @@ def edit_lead_admin(**data):
     Updates Lead Info and PaymentInfo records safely.
     """
     try:
-        lead_id = data.get("lead_id")
+        lead_id = data.get("lead_id") or data.get("id")
         if not lead_id:
             raise APIException("Lead ID is required")
 
@@ -1211,21 +1211,30 @@ def edit_lead_admin(**data):
             raise APIException("Lead not found")
 
         # 1. Name Resolution
-        full_name = data.get("full_name")
+        full_name = data.get("full_name") or data.get("name")
         if not full_name:
             fn = data.get("first_name") or ""
             ln = data.get("last_name") or ""
             full_name = f"{fn} {ln}".strip()
         if full_name:
             lead.full_name = full_name
+            if data.get("first_name"):
+                lead.first_name = data.get("first_name")
+            if data.get("last_name"):
+                lead.last_name = data.get("last_name")
 
         # 2. Basic Info Updates
         if data.get("mobile_no"):
             lead.mobile_no = data.get("mobile_no")
-        if "email" in data:
+        if "email" in data and data.get("email") is not None:
             lead.email = data.get("email")
-        if "alt_mobile" in data:
+        if "alt_mobile" in data and data.get("alt_mobile") is not None:
             lead.alternative_mobile = data.get("alt_mobile")
+        if data.get("enquiry_date"):
+            try:
+                lead.enquiry_date = data.get("enquiry_date")
+            except Exception:
+                pass
 
         # 3. Foreign Key Resolutions (Supports both Names and IDs)
         assigned_val = data.get("assigned_to")
@@ -1252,7 +1261,7 @@ def edit_lead_admin(**data):
             if camp_obj:
                 lead.campaign = camp_obj
 
-        stage_val = data.get("stage")
+        stage_val = data.get("stage") or data.get("pipeline")
         if stage_val:
             stage_obj = PipelineStage.objects.filter(Q(id=stage_val if str(stage_val).isdigit() else 0) | Q(name__icontains=stage_val)).first()
             if stage_obj:
@@ -1260,12 +1269,15 @@ def edit_lead_admin(**data):
 
         lead.save()
 
-        # 4. Safe Payment Info Updates (Prevents NULL constraint error)
+        # 4. Payment Info Updates & Auto-sync with Pending Payments Page
         amount_paid = data.get("amount_paid")
         pending_amount = data.get("pending_amount")
-        if amount_paid is not None or pending_amount is not None:
+        total_amount = data.get("total_amount")
+
+        if amount_paid is not None or pending_amount is not None or total_amount is not None:
             ap_val = float(amount_paid) if amount_paid is not None else 0.0
             pa_val = float(pending_amount) if pending_amount is not None else 0.0
+
             payment_obj, created = PaymentInfo.objects.get_or_create(
                 lead=lead,
                 defaults={
@@ -1274,19 +1286,34 @@ def edit_lead_admin(**data):
                     'is_full_payment': (pa_val == 0)
                 }
             )
-            if not created:
-                if amount_paid is not None:
-                    payment_obj.amount_paid = float(amount_paid)
-                if pending_amount is not None:
-                    payment_obj.pending_amount = float(pending_amount)
-                payment_obj.is_full_payment = (payment_obj.pending_amount == 0)
-                payment_obj.save()
+
+            if amount_paid is not None:
+                payment_obj.amount_paid = float(amount_paid)
+            if pending_amount is not None:
+                payment_obj.pending_amount = float(pending_amount)
+
+            payment_obj.is_full_payment = (payment_obj.pending_amount == 0)
+            payment_obj.save()
+
+            final_ap = payment_obj.amount_paid
+            final_pa = payment_obj.pending_amount
+        else:
+            existing_payment = PaymentInfo.objects.filter(lead=lead).first()
+            final_ap = existing_payment.amount_paid if existing_payment else 0.0
+            final_pa = existing_payment.pending_amount if existing_payment else 0.0
 
         return {
             "status": "success",
-            "message": "Lead details updated successfully!",
-            "lead_id": lead.id
+            "message": "Lead details updated successfully",
+            "data": {
+                "lead_id": lead.id,
+                "amount_paid": final_ap,
+                "pending_amount": final_pa
+            }
         }
+
+    except Exception as e:
+        raise APIException(str(e))
 
     except Exception as e:
         raise APIException(str(e))

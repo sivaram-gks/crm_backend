@@ -5,6 +5,10 @@ from .views.lead_views import (
     FetchLeadDetailsAdmin, GetMarkAsWonInfoAdmin, MarkAsWonAdmin, 
     GetMarkAsLostInfoAdmin, MarkAsLostAdmin, EditLeadAdmin
 )
+from .views.payment_views import (
+    FetchAllPendingPaymentsAdmin, ExportPendingPaymentsAdmin,
+    GetPendingPaymentFilterDropdownsAdmin
+)
 
 urlpatterns = [
     path('fetch_all_leads_admin', FetchAllLeadsAdmin.as_view()),
@@ -20,4 +24,9 @@ urlpatterns = [
     path('mark_as_lost_admin', MarkAsLostAdmin.as_view()),
     path('edit_lead_admin', EditLeadAdmin.as_view()),
     path('edit_lead', EditLeadAdmin.as_view()),
+    
+    # 💰 Pending Payments APIs
+    path('fetch_all_pending_payments_admin', FetchAllPendingPaymentsAdmin.as_view()),
+    path('export_pending_payments_admin', ExportPendingPaymentsAdmin.as_view()),
+    path('get_pending_payment_filter_dropdowns_admin', GetPendingPaymentFilterDropdownsAdmin.as_view()),
 ]

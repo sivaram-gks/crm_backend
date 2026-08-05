@@ -13,7 +13,6 @@ urlpatterns = [
 
     # ✅ message receive (POST)
     path('api/whatsapp/webhook/', WhatsappWebhook.as_view()),
-    
     path('adm/', include('adm.urls')),  
 ]
 

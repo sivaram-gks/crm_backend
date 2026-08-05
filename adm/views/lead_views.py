@@ -425,14 +425,17 @@ class EditLeadAdmin(APIView):
     Admin Leads Page -> Edit Lead Modal Save API.
     """
     class InputSerializers(serializers.Serializer):
-        lead_id = serializers.IntegerField(required=True)
+        lead_id = serializers.IntegerField(required=False, allow_null=True)
+        id = serializers.IntegerField(required=False, allow_null=True)
         first_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         last_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         full_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         mobile_no = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         alt_mobile = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         email = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         created_at = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        enquiry_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         assigned_to = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         course_plan = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         course = serializers.CharField(required=False, allow_blank=True, allow_null=True)
@@ -442,6 +445,7 @@ class EditLeadAdmin(APIView):
         tag = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         amount_paid = serializers.FloatField(required=False, allow_null=True)
         pending_amount = serializers.FloatField(required=False, allow_null=True)
+        total_amount = serializers.FloatField(required=False, allow_null=True)
 
     def post(self, request):
         serializer = self.InputSerializers(data=request.data)
@@ -454,7 +458,7 @@ class EditLeadAdmin(APIView):
             'api_name': request.path,
             'method': request.method,
             'request_payload': serializer.validated_data,
-            'response_payload': {"status": result.get("status"), "message": result.get("message")},
+            'response_payload': result,
             'status_code': 200
         }
         api_history_log(log_data)
