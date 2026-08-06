@@ -161,6 +161,14 @@ def fetch_all_leads_admin(**data):
             
             pending_amt = payment_info.pending_amount if payment_info else 0
 
+            PRIORITY_MAP = {
+                1: "Prospective",
+                2: "Interested",
+                3: "Just Follow Up",
+                4: "New Lead"
+            }
+            tag_name = PRIORITY_MAP.get(lead.priority_id) if lead.priority_id else (getattr(lead.priority, 'display_value', None) or (lead.priority.name if lead.priority else "New Lead"))
+
             leads.append({
                 # "s_no": idx,
                 "id": lead.id,
@@ -174,6 +182,8 @@ def fetch_all_leads_admin(**data):
                 "source": lead.lead_source.name if lead.lead_source else None,
                 "course_plan": lead.course_plan.courseplan if lead.course_plan else None,
                 "course": lead.course_name.coursename if lead.course_name else None,
+                "tag": tag_name,
+                "priority_id": lead.priority_id,
                 "next_followup": latest_followup.scheduled_at if latest_followup else None,
                 "amount": course_fee,
                 "pending_amount": pending_amt,
@@ -258,14 +268,16 @@ def add_new_lead_admin(user, **data):
             assigned_name = get_user_display_name(existing_lead.assigned_to) or "another agent"
             raise APIException(f"Mobile number {mobile_no} is already registered and assigned to {assigned_name}.")
         
-        # 2. Name Combination
+        # 2. Mandatory Name Validation
         first_name = (data.get("first_name") or "").strip()
         last_name = (data.get("last_name") or "").strip()
+        full_name = (data.get("full_name") or data.get("name") or "").strip()
         
-        if first_name or last_name:
+        if not full_name and (first_name or last_name):
             full_name = f"{first_name} {last_name}".strip()
-        else:
-            full_name = (data.get("full_name") or "New Enquiry").strip()
+            
+        if not full_name:
+            raise APIException("Student name is required")
             
         # 3. Campaign (by ID or Name)
         campaign_id = data.get("campaign_id") or data.get("campaign_name_id")
@@ -639,12 +651,19 @@ def get_filter_dropdowns_admin():
         users_qs = User.objects.filter(is_active=True)
         telecallers = [{"id": u.id, "name": get_user_display_name(u)} for u in users_qs]
 
+        priority_tags = [
+            {"id": 1, "name": "Prospective"},
+            {"id": 2, "name": "Interested"},
+            {"id": 3, "name": "Just Follow Up"}
+        ]
+
         return {
             "pipeline_stages": pipeline_stages,
             "lead_sources": lead_sources,
             "campaigns": campaigns,
             "course_plans": course_plans,
-            "telecallers": telecallers
+            "telecallers": telecallers,
+            "priority_tags": priority_tags
         }
     except Exception as e:
         raise APIException(str(e))
@@ -967,21 +986,22 @@ def get_mark_as_won_info_admin(lead_id):
             "full_name": lead.full_name or "",
             "mobile_no": lead.mobile_no or "",
             "assigned_to": get_user_display_name(lead.assigned_to) or "Unassigned",
-            "current_stage": lead.pipeline_stage.name if lead.pipeline_stage else "Hot",
+            "current_stage": lead.pipeline_stage.name if lead.pipeline_stage else "Prospective",
             "course_fee": course_fee,
             "amount_paid": paid_amount,
             "pending_amount": pending_amount
         }
 
         payment_modes = ["Online", "Cash", "UPI", "Bank Transfer", "Cheque"]
-        lead_stages = ["Hot", "Warm", "Cold"]
+        priority_tags = ["Prospective", "Interested", "Just Follow Up"]
 
         return {
             "status": "success",
             "data": {
                 "lead_info": lead_info,
                 "payment_modes": payment_modes,
-                "lead_stages": lead_stages
+                "lead_stages": priority_tags,
+                "priority_tags": priority_tags
             }
         }
     except Exception as e:
@@ -1008,6 +1028,10 @@ def mark_as_won_admin(**data):
         due_date = data.get("due_date")
         summary = data.get("summary") or ""
         next_followup = data.get("next_followup")
+
+        # 🛑 Validation: Amount Paid must be entered before marking as WON!
+        if amount_paid <= 0 and not is_full_payment:
+            raise APIException("Paid amount is required to mark a lead as WON. Please enter valid amount_paid.")
 
         # 1. Update Lead Pipeline Stage to WON (Stage ID 3)
         won_stage = PipelineStage.objects.filter(id=3).first() or PipelineStage.objects.filter(name__icontains="won").first()
@@ -1115,7 +1139,7 @@ def get_mark_as_lost_info_admin(lead_id):
             "last_conversation": last_conversation_str,
             "last_contacted": last_contacted_str,
             "lead_age": lead_age,
-            "current_stage": lead.pipeline_stage.name if lead.pipeline_stage else "Cold"
+            "current_stage": lead.pipeline_stage.name if lead.pipeline_stage else "Just Follow Up"
         }
 
         # Loss Reasons from SelectTag model
@@ -1150,6 +1174,10 @@ def mark_as_lost_admin(**data):
 
         main_reason_val = data.get("main_reason_id") or data.get("main_reason") or data.get("reason")
         detailed_reason = data.get("detailed_reason") or data.get("remarks") or data.get("reason") or ""
+
+        # 🛑 Validation: Loss reason must be selected before marking as LOST!
+        if not main_reason_val or str(main_reason_val).strip() in ["", "None", "null", "0"]:
+            raise APIException("Reason is required to mark a lead as LOST. Please select a valid reason.")
 
         # 1. Update Lead Pipeline Stage to LOST (Stage ID 4)
         lost_stage = PipelineStage.objects.filter(id=4).first() or PipelineStage.objects.filter(Q(name__icontains="loss") | Q(name__icontains="lost")).first()
@@ -1266,6 +1294,18 @@ def edit_lead_admin(**data):
             stage_obj = PipelineStage.objects.filter(Q(id=stage_val if str(stage_val).isdigit() else 0) | Q(name__icontains=stage_val)).first()
             if stage_obj:
                 lead.pipeline_stage = stage_obj
+
+        # Priority Tag Resolution (Prospective, Interested, Just Follow Up)
+        tag_val = data.get("tag") or data.get("priority_id") or data.get("priority")
+        if tag_val:
+            tag_map = {
+                "prospective": 1, "hot": 1, "1": 1, 1: 1,
+                "interested": 2, "warm": 2, "2": 2, 2: 2,
+                "just follow up": 3, "just_follow_up": 3, "cold": 3, "3": 3, 3: 3
+            }
+            p_id = tag_map.get(str(tag_val).lower().strip())
+            if p_id:
+                lead.priority_id = p_id
 
         lead.save()
 

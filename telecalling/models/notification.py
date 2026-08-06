@@ -16,6 +16,11 @@ class Notification(SafeDeleteModel):
         on_delete=models.CASCADE,
         null=True
     )
+    lead = models.ForeignKey(
+        Lead,
+        on_delete=models.CASCADE,
+        null=True
+    )
     scheduled_remainder=models.DateTimeField(null=True)
     
     

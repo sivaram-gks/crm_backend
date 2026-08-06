@@ -66,9 +66,10 @@ class AddNewLeadAdmin(APIView):
     POST -> Form Submit pannum podhu puthu lead-ah save pannum
     """
     class InputSerializers(serializers.Serializer):
-        first_name = serializers.CharField(required=False, allow_blank=True)
-        last_name = serializers.CharField(required=False, allow_blank=True)
-        full_name = serializers.CharField(required=False, allow_blank=True)
+        name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        first_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        last_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        full_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
         mobile_no = serializers.CharField(required=True)
         email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
         pipeline = serializers.CharField(required=False, default="Education")

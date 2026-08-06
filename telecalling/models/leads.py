@@ -101,6 +101,8 @@ class CampaignName(SafeDeleteModel):
         
 class Priority(SafeDeleteModel):
     name=models.CharField(max_length=100)
+    display_value=models.CharField(max_length=100, null=True, blank=True)
+    pipeline_stage=models.ForeignKey('PipelineStage', on_delete=models.SET_NULL, null=True, blank=True)
     is_active=models.BooleanField(default=False)
     created_at=models.DateTimeField(auto_now_add=True,null=True)
     created_by=models.CharField(max_length=50,null=True)
@@ -115,6 +117,7 @@ class Priority(SafeDeleteModel):
         
 class PipelineStage(SafeDeleteModel):
     name=models.CharField(max_length=100)
+    display_value=models.CharField(max_length=100, null=True, blank=True)
     is_active=models.BooleanField(default=False)
     created_at=models.DateTimeField(auto_now_add=True,null=True)
     created_by=models.CharField(max_length=50,null=True)
@@ -175,6 +178,7 @@ class Stages(SafeDeleteModel):
 class SelectTag(SafeDeleteModel):
     stages=models.ForeignKey(Stages,on_delete=models.SET_NULL,null=True,related_name="stages")
     name=models.CharField(max_length=100)
+    display_value=models.CharField(max_length=100, null=True, blank=True)
     is_active=models.BooleanField(default=False)
     created_at=models.DateTimeField(auto_now_add=True,null=True)
     created_by=models.CharField(max_length=50,null=True)

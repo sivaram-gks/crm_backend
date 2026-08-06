@@ -39,15 +39,16 @@ def get_pending_payment_filter_dropdowns_admin():
         ]
 
         payment_stages = [
-            {"id": ps.id, "name": str(ps)}
-            for ps in PaymentStage.objects.all().order_by("id")
+            {"id": "today_due", "name": "Today Due"},
+            {"id": "active_due", "name": "Active Due"},
+            {"id": "overdue", "name": "Overdue"}
         ]
 
         pending_amount_ranges = [
             {"id": "all", "name": "All"},
-            {"id": "below_5000", "name": "Less than ₹5,000"},
-            {"id": "5000_10000", "name": "₹5,000 - ₹10,000"},
-            {"id": "above_10000", "name": "Above ₹10,000"}
+            {"id": "above_5k", "name": "Above ₹5,000"},
+            {"id": "below_5k", "name": "Below ₹5,000"},
+            {"id": "below_2k", "name": "Below ₹2,000"}
         ]
 
         return {
