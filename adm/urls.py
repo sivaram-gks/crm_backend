@@ -9,6 +9,10 @@ from .views.payment_views import (
     FetchAllPendingPaymentsAdmin, ExportPendingPaymentsAdmin,
     GetPendingPaymentFilterDropdownsAdmin
 )
+from .views.loss_lead_approval_views import (
+    FetchLossLeadApprovalRequestsAdmin, GetLossLeadApprovalFilterDropdownsAdmin,
+    ExportLossLeadApprovalRequestsAdmin, ActionLossLeadApprovalAdmin
+)
 
 urlpatterns = [
     path('fetch_all_leads_admin', FetchAllLeadsAdmin.as_view()),
@@ -29,4 +33,10 @@ urlpatterns = [
     path('fetch_all_pending_payments_admin', FetchAllPendingPaymentsAdmin.as_view()),
     path('export_pending_payments_admin', ExportPendingPaymentsAdmin.as_view()),
     path('get_pending_payment_filter_dropdowns_admin', GetPendingPaymentFilterDropdownsAdmin.as_view()),
+
+    # 🛑 Loss Lead Approval Request APIs
+    path('fetch_loss_lead_approval_requests_admin', FetchLossLeadApprovalRequestsAdmin.as_view()),
+    path('get_loss_lead_approval_filter_dropdowns_admin', GetLossLeadApprovalFilterDropdownsAdmin.as_view()),
+    path('export_loss_lead_approval_requests_admin', ExportLossLeadApprovalRequestsAdmin.as_view()),
+    path('action_loss_lead_approval_admin', ActionLossLeadApprovalAdmin.as_view()),
 ]

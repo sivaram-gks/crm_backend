@@ -14,6 +14,7 @@ from telecalling.models import (
     CallDetails, CampaignName, LeadSource, PipelineStage,
     User, CoursePlan, CourseName, SelectTag
 )
+from ..models import AdminLossActionLog, AdminApprovedLossLead
 
 def get_user_display_name(user_obj):
     
@@ -1208,6 +1209,18 @@ def mark_as_lost_admin(**data):
                 loss_obj.main_reason = main_reason_obj
             loss_obj.detailed_reason = detailed_reason
             loss_obj.save()
+
+        # 4. Record Action Log in AdminLossActionLog
+        try:
+            AdminLossActionLog.objects.create(
+                lead=lead,
+                admin_user=lead.assigned_to,
+                action_type='submitted',
+                previous_assigned_to=lead.assigned_to,
+                remarks=f"Marked as Lost: {main_reason_obj.name if main_reason_obj else detailed_reason}"
+            )
+        except Exception:
+            pass
 
         return {
             "status": "success",
