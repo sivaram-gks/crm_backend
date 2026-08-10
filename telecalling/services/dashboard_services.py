@@ -14,90 +14,71 @@ from ..models.follow_up import FollowUp
 
 
 
-def dashboard_top_tile(user,**data):
+def normalize_date_range(filter_type, from_date=None, to_date=None):
     try:
-        # id=data.get("tele_id")
-        id=user.id
-        
-        filter_type = data.get("filter_type", "monthly")
-        from_date = data.get("from_date")
-        to_date = data.get("to_date")
-        
+        import zoneinfo
+        ist = zoneinfo.ZoneInfo('Asia/Kolkata')
+        today = datetime.now(ist).date()
+    except Exception:
         today = datetime.now().date()
 
-        # Logic for Daily, Weekly, Monthly, Yesterday
-        if filter_type == "today":
-            from_date = today
-            to_date = today
-        elif filter_type == "yesterday":
-            from_date = today - timedelta(days=1)
-            to_date = from_date
-        elif filter_type == "weekly":
-            from_date = today - timedelta(days=7)
-            to_date = today
-        elif filter_type == "monthly":
-            from_date = today.replace(day=1)
-            to_date = today
-        elif filter_type == "year":
-            from_date = today.replace(month=1, day=1) 
-            to_date = today
-        elif filter_type=="custom":
-            from_date=from_date
-            to_date=to_date
+    ft = str(filter_type or "").lower().strip()
 
-   
+    if ft in ["today", "daily"]:
+        return today, today
+    elif ft == "yesterday":
+        y = today - timedelta(days=1)
+        return y, y
+    elif ft in ["weekly", "week"]:
+        return today - timedelta(days=7), today
+    elif ft in ["monthly", "month"]:
+        return today - timedelta(days=30), today
+    elif ft in ["year", "yearly"]:
+        return today.replace(month=1, day=1), today
+    elif ft == "custom" and from_date and str(from_date) != "None":
+        try:
+            fd = datetime.strptime(str(from_date), "%Y-%m-%d").date() if isinstance(from_date, str) else from_date
+            td = datetime.strptime(str(to_date), "%Y-%m-%d").date() if isinstance(to_date, str) else (to_date or today)
+            return fd, td
+        except Exception:
+            return today.replace(month=1, day=1), today
+    else:
+        return today.replace(month=1, day=1), today
+
+
+def dashboard_top_tile(user,**data):
+    try:
+        id=user.id
+        filter_type = data.get("filter_type", "monthly")
+        from_d, to_d = normalize_date_range(filter_type, data.get("from_date"), data.get("to_date"))
+
         params = {
-            "id":id,
-            "from_date": str(from_date),
-            "to_date": str(to_date),
+            "id": id,
+            "from_date": str(from_d),
+            "to_date": str(to_d),
             "filter_type": str(filter_type)
         }
         pay=exec_raw_sql("D_FETCH_DASHBOARD_TOP_TILES",params)
-        
         return pay
         
     except Exception as e:
         raise APIException(e)
     
     
-    
-    
 def fetch_pipeline_funnel(user,**data):
     try:
         id = user.id
         filter_type = data.get("filter_type", "year")
-        from_date = data.get("from_date")
-        to_date = data.get("to_date")
-
-        today = datetime.now().date()
-
-        if filter_type == "today":
-            from_date = today
-            to_date = today
-        elif filter_type == "yesterday":
-            from_date = today - timedelta(days=1)
-            to_date = from_date
-        elif filter_type == "weekly":
-            from_date = today - timedelta(days=7)
-            to_date = today
-        elif filter_type == "monthly":
-            from_date = today.replace(day=1)
-            to_date = today
-        elif filter_type == "year":
-            from_date = today.replace(month=1, day=1)
-            to_date = today
+        from_d, to_d = normalize_date_range(filter_type, data.get("from_date"), data.get("to_date"))
 
         params = {
             "id": id,
-            "from_date": str(from_date),
-            "to_date": str(to_date),
+            "from_date": str(from_d),
+            "to_date": str(to_d),
             "filter_type": str(filter_type)
         }
 
         result = exec_raw_sql("D_FETCH_PIPELINE_FUNNEL", params)
-        print(result)
-
-        
         return {"funnel": result}
 
     except Exception as e:
@@ -106,53 +87,31 @@ def fetch_pipeline_funnel(user,**data):
     
 def fetch_dashboard_analytics(user,**data):
     try:
-        # id = data.get("tele_id")
         id=user.id
         filter_type = data.get("filter_type", "month")
-        today = datetime.now().date()
-
-        if filter_type == "today":
-            from_date = to_date = today
-        elif filter_type == "yesterday":
-            from_date = to_date = today - timedelta(days=1)
-        elif filter_type == "weekly":
-            from_date = today - timedelta(days=7)
-            to_date = today
-        elif filter_type == "monthly":
-            from_date = today.replace(day=1)
-            to_date = today
-        elif filter_type == "year":
-            from_date = today.replace(month=1, day=1)
-            to_date = today
-        else:
-            from_date = data.get("from_date")
-            to_date = data.get("to_date")
+        from_d, to_d = normalize_date_range(filter_type, data.get("from_date"), data.get("to_date"))
 
         params = {
             "id": id,
-            "from_date": str(from_date),
-            "to_date": str(to_date),
+            "from_date": str(from_d),
+            "to_date": str(to_d),
         }
 
         performance   = exec_raw_sql("D_FETCH_TELECALLER_PERFORMANCE", params)
         enrollment    = exec_raw_sql("D_FETCH_ENROLLMENT_BY_COURSE_TELE", params)
         loss_analysis = exec_raw_sql("D_FETCH_LOSS_ANALYSIS_TELE", params)
-        print(performance)
-        print(enrollment)
-        print(loss_analysis)
         return {
             "performance": performance[0] if performance else {},
             "enrollment":enrollment if enrollment else {},
-            # ✅ Loss Analysis - label, value, percentage format
             "loss_analysis": {
-                "total_lost": sum(l["total_lost"] for l in loss_analysis),
+                "total_lost": sum(l["total_lost"] for l in loss_analysis) if loss_analysis else 0,
                 "reasons": [
                     {
                         "label": l["reason"],
                         "value": l["total_lost"],
                         "percentage": l["percentage"]
                     }
-                    for l in loss_analysis
+                    for l in (loss_analysis or [])
                 ]
             }
         }
@@ -401,8 +360,7 @@ def mark_notification_read(user, **data):
         # FollowUp notification update
         # -----------------------------------
         if notification.follow_up_id:
-
-            # Current followup notification
+            # Mark all notifications for this follow-up as read
             Notification.objects.filter(
                 follow_up_id=notification.follow_up_id,
                 user_id=user.id
@@ -412,46 +370,21 @@ def mark_notification_read(user, **data):
                 updated_by=user.username
             )
 
-            # Missed followup notifications
-            Notification.objects.filter(
-                follow_up_id=notification.follow_up_id,
-                notification_type="missed_followup",
-                user_id=user.id
-            ).update(
-                is_read=True,
-                updated_at=timezone.now(),
-                updated_by=user.username
-            )
-            
-            Notification.objects.filter(
-                follow_up_id=notification.follow_up_id,
-                notification_type="lead_notificayion=",
-                user_id=user.id
-            ).update(
-                is_read=True,
-                updated_at=timezone.now(),
-                updated_by=user.username
-            )
-
-            follow=FollowUp.objects.filter(id=notification.follow_up_id).first()
-            
-            follow.is_read=True
-            follow.save()
-        
-        
-        # websocket
+        # Broadcast refresh to BOTH notification and reminder WebSocket channels
         channel_layer = get_channel_layer()
-        group_name = get_group_name(notification.notification_type, user.id)
-
-        if group_name == f"notif_user_{user.id}":
-            event_type = "refresh_notifications"
-        else:
-            event_type = "refresh_remainder"
+        
+        async_to_sync(channel_layer.group_send)(
+            f"notif_user_{user.id}",
+            {
+                "type": "refresh_notifications",
+                "user_id": user.id,
+            }
+        )
 
         async_to_sync(channel_layer.group_send)(
-            group_name,
+            f"reminder_user_{user.id}",
             {
-                "type": event_type,
+                "type": "refresh_remainder",
                 "user_id": user.id,
             }
         )

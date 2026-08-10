@@ -19,14 +19,12 @@ from django.utils import timezone
 
 # @task()
 def send_notification_to_user(user_id, notification_type, title, message, 
-                              follow_up_id=None, payment_id=None, scheduled_remainder=None, data=None):
+                              follow_up_id=None, payment_id=None, lead_id=None, scheduled_remainder=None, data=None):
     """
     Send notification to a specific user via WebSocket and save to database
     """
     try:
-        
-        # ist = zoneinfo.ZoneInfo('Asia/Kolkata')
-        # today = timezone.now().astimezone(ist).date()
+        actual_lead_id = lead_id or (data.get('lead_id') if isinstance(data, dict) else None)
         
         # Save notification to database
         notification = Notification.objects.create(
@@ -36,6 +34,7 @@ def send_notification_to_user(user_id, notification_type, title, message,
             message=message,
             follow_up_id=follow_up_id,
             payment_id=payment_id,
+            lead_id=actual_lead_id,
             scheduled_remainder=scheduled_remainder,
             is_read=False
         )
@@ -51,28 +50,29 @@ def send_notification_to_user(user_id, notification_type, title, message,
                 'notification_type': notification_type,
                 'title': title,
                 'message': message,
+                'lead_id': actual_lead_id,
                 'data': {
                     'id': notification.id,
                     'created_at': str(notification.created_at),
                     'follow_up_id': follow_up_id,
                     'payment_id': payment_id,
+                    'lead_id': actual_lead_id,
                     'scheduled_remainder': str(scheduled_remainder) if scheduled_remainder else None,
                     **(data or {})
                 }
             }
         )
         
-        print(f"✅ Notification sent to user {user_id}: {title}")
+        print(f"[OK] Notification sent to user {user_id}: {title}")
         return notification.id
         
     except Exception as e:
-        print(f"❌ Failed to send notification: {e}")
+        print(f"[ERROR] Failed to send notification: {e}")
         return None
     
     
     
     
-@task()
 def send_lead_assigned_notification(lead_id, assigned_to_id, assigned_by_id=None):
     """
     Send notification when a lead is assigned
@@ -101,14 +101,15 @@ def send_lead_assigned_notification(lead_id, assigned_to_id, assigned_by_id=None
             'lead_notification',
             title,
             message,
+            lead_id=lead.id,
             data=data
         )
         
     except Lead.DoesNotExist:
-        print(f"❌ Lead {lead_id} not found")
+        print(f"[ERROR] Lead {lead_id} not found")
         return None
     except Exception as e:
-        print(f"❌ Error in lead assignment notification: {e}")
+        print(f"[ERROR] Error in lead assignment notification: {e}")
         return None
 
 

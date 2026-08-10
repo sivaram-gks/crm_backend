@@ -273,7 +273,6 @@ class FilterPipeline(SafeDeleteModel):
     created_by=models.CharField(max_length=50,null=True)
     updated_at=models.DateTimeField(auto_now=True,null=True)
     updated_by=models.CharField(max_length=50,null=True)
-
     def __str__(self):
         return str(self.name)
     class Meta:

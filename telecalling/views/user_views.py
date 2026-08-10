@@ -17,8 +17,9 @@ class CreateUser(APIView):
         # last_name = serializers.CharField(required = False)
         username = serializers.CharField(required=True, validators=[UniqueValidator(queryset=User.objects.all())])
         email = serializers.EmailField(required=True, validators=[UniqueValidator(queryset=User.objects.all())])
-        mobile_number = serializers.CharField(required =True,allow_null = True)
-        role_id = serializers.IntegerField()
+        first_name = serializers.CharField(required=True)
+        mobile_number = serializers.CharField(required =False,allow_null = True)
+        role_id = serializers.IntegerField(required = True)
         password = serializers.CharField(required = True)
         confirm_password = serializers.CharField(required = True)
     def post(self, request):
@@ -92,7 +93,7 @@ class CreateToken(APIView):
     class InputSerializer(serializers.Serializer):
         username = serializers.CharField()
         password = serializers.CharField(write_only=True)
-        source = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        # source = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def post(self, request):
         print(request.data)

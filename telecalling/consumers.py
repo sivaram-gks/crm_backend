@@ -4,7 +4,9 @@ from asgiref.sync import sync_to_async
 from .models import * 
 from .services.query_services import *
 from django.conf import settings
+from django.db.models import Q
 from datetime import datetime, timedelta
+import zoneinfo
 from urllib.parse import parse_qs
 from rest_framework_simplejwt.tokens import UntypedToken
 
@@ -110,20 +112,21 @@ class ReminderNotificationConsumer(AsyncWebsocketConsumer):
             "action": "refresh",
             "payload": fetch_list
         }, default=str))
-        print("✅ Unread list refreshed & sent to frontend!")
+        print("[OK] Unread list refreshed & sent to frontend!")
         
     @sync_to_async
     def get_user_notifications(self, user_id, limit=50):
         """
-        Get notifications for a user from database
+        Get reminders (missed follow-up 5-min recurring alerts) for a user from database
         """
+        # Fetch unread 5-minute recurring missed follow-up alerts for active Follow Up stage leads
         notifications = Notification.objects.filter(
             user_id=user_id,
-            notification_type__in=["followup_reminder", "missed_followup","reminder"],
-            # notification_type="reminder",
+            notification_type__in=["missed_followup", "reminder"],
+            follow_up__lead__pipeline_stage__name__iexact="follow up",
             is_read=False
-        ).order_by("-created_at")
-        
+        ).order_by("-created_at")[:limit]
+
         return [
             {
                 'id': n.id,
@@ -131,7 +134,9 @@ class ReminderNotificationConsumer(AsyncWebsocketConsumer):
                 'message': n.message,
                 'notification_type': n.notification_type,
                 'date': str(n.created_at),
-                'scheduled_remainder': str(n.scheduled_remainder) if n.scheduled_remainder else None
+                'scheduled_remainder': str(n.scheduled_remainder) if n.scheduled_remainder else None,
+                'read': n.is_read,
+                'lead_id': n.lead_id or (n.follow_up.lead_id if n.follow_up else None)
             }
             for n in notifications
         ]
@@ -147,7 +152,7 @@ class ReminderNotificationConsumer(AsyncWebsocketConsumer):
             # Intha line thaan pgAdmin/Postgres-la poi user-ah thedum
             return User.objects.get(id=user_id)
         except Exception as e:
-            print(f"❌ JWT Error: {e}")
+            print(f"[ERROR] JWT Error: {e}")
             return None
         
         
@@ -174,7 +179,7 @@ class NotificationConsumer(AsyncWebsocketConsumer):
                     
                     await self.channel_layer.group_add(self.group_name, self.channel_name)
                     await self.accept()
-                    print(f"✅ DB Verified: {user.username} (ID: {user.id}) connected to Postgres.")
+                    print(f"[OK] DB Verified: {user.username} (ID: {user.id}) connected to Postgres.")
                 else:
                     print("DEBUG: User not found or Token invalid")
                     await self.close()
@@ -198,17 +203,17 @@ class NotificationConsumer(AsyncWebsocketConsumer):
                     self.channel_name
                 )
     async def notification(self, event):
-        print(f"📩 Event received: {event}")
+        print(f"[EVENT] Event received: {event}")
         await self.send(text_data=json.dumps({
             "notification_type": event.get("notification_type"),
             "title":             event.get("title"),
             "message":           event.get("message"),
             "data":              event.get("data"),
         }, default=str))
-        print(f"✅ Sent to frontend!")
+        print(f"[OK] Sent to frontend!")
         
     async def refresh_notifications(self, event):
-        print(f"🔄 Refresh triggered for user: {self.user_id}")
+        print(f"[REFRESH] Refresh triggered for user: {self.user_id}")
 
         fetch_list = await self.get_user_notifications(self.user_id)
 
@@ -216,16 +221,53 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             "action": "refresh",
             "payload": fetch_list
         }, default=str))
-        print("✅ Notification list refreshed & sent to frontend!")
+        print("[OK] Notification list refreshed & sent to frontend!")
     
     @sync_to_async
     def get_user_notifications(self, user_id, limit=50):
         """
-        Get notifications for a user from database
+        Get main notifications (New Lead, Initial Scheduled Follow-up Time Alert, Daily Count) for a user
         """
+        ist = zoneinfo.ZoneInfo('Asia/Kolkata')
+        now = datetime.now(ist)
+
+        # 1. Automatically mark follow-ups as attended for leads that were moved to Won (3) or Loss (4)
+        FollowUp.objects.filter(
+            lead__pipeline_stage__name__in=["won", "loss"],
+            is_attended=False
+        ).update(is_attended=True)
+
+        # 2. Check and generate initial follow-up reminder alerts when scheduled time arrives
+        due_followups = FollowUp.objects.filter(
+            Q(telecaller_id=user_id) | Q(lead__assigned_to_id=user_id),
+            scheduled_at__lte=now,
+            is_attended=False
+        ).select_related('lead')
+
+        for f in due_followups:
+            exists = Notification.objects.filter(
+                follow_up_id=f.id,
+                notification_type__in=['followup_reminder', 'missed_followup']
+            ).exists()
+
+            if not exists:
+                scheduled_at_ist = f.scheduled_at.astimezone(ist) if hasattr(f.scheduled_at, 'astimezone') else f.scheduled_at
+                title = "Follow-up Reminder"
+                message = f"Follow-up reminder for {f.lead.full_name} at {scheduled_at_ist.strftime('%I:%M %p') if hasattr(scheduled_at_ist, 'strftime') else str(scheduled_at_ist)}"
+
+                Notification.objects.create(
+                    user_id=user_id,
+                    notification_type='followup_reminder',
+                    title=title,
+                    message=message,
+                    follow_up_id=f.id,
+                    scheduled_remainder=scheduled_at_ist,
+                    is_read=False
+                )
+
         notifications = Notification.objects.filter(
             user_id=user_id,
-            notification_type__in=["notification","lead_notification","daily_followup_count"],
+            notification_type__in=["notification", "lead_notification", "followup_reminder", "daily_followup_count"],
             is_read=False
         ).order_by('-created_at')[:limit]
         
@@ -236,7 +278,9 @@ class NotificationConsumer(AsyncWebsocketConsumer):
                 'message': n.message,
                 'notification_type': n.notification_type,
                 'date': str(n.created_at),
-                'scheduled_remainder': str(n.scheduled_remainder) if n.scheduled_remainder else None
+                'scheduled_remainder': str(n.scheduled_remainder) if n.scheduled_remainder else None,
+                'read': n.is_read,
+                'lead_id': n.lead_id or (n.follow_up.lead_id if n.follow_up else None)
             }
             for n in notifications
         ]

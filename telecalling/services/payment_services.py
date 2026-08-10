@@ -28,7 +28,7 @@ def fetch_all_payment(user,**data):
             from_date = today - timedelta(days=7)
             to_date = today
         elif date_filter_type == "monthly":
-            from_date = today.replace(day=1)
+            from_date = today - timedelta(days=30)
             to_date = today
         elif date_filter_type == "year":
             from_date = "2026-01-01" 
@@ -39,15 +39,15 @@ def fetch_all_payment(user,**data):
 
    
         params = {
-            "id":id,
-            "from_date": str(from_date),
-            "to_date": str(to_date),
-            "filter_type": str(date_filter_type),
-            "amount_stage_id": data.get("pending_amount_id"),
-            "course_name_id": data.get("course_name_id"),
-            "course_time_id": data.get("course_time_id"),
-            "course_plan_id": data.get("course_plan_id"),
-            "payment_stage": data.get("payment_stage_id") 
+            "id": id,
+            "from_date": str(from_date) if from_date else "",
+            "to_date": str(to_date) if to_date else "",
+            "filter_type": str(date_filter_type) if date_filter_type else "",
+            "amount_stage_id": data.get("pending_amount_id") or 0,
+            "course_name_id": data.get("course_name_id") or 0,
+            "course_time_id": data.get("course_time_id") or 0,
+            "course_plan_id": data.get("course_plan_id") or 0,
+            "payment_stage": data.get("payment_stage_id") or 0
         }
         print(params)
         pay=exec_raw_sql("D_FETCH_ALL_PENDING_PAYMENTS",params)
@@ -134,33 +134,39 @@ def payment_details(user, **data):
 
 
         # ==========================================
-        # ✅ MARK EXISTING FOLLOWUP AS ATTENDED
+        # ✅ MARK EXISTING FOLLOWUP AS ATTENDED / COMPLETED
         # ==========================================
 
-        existing_followup = PaymentFollowUp.objects.filter(
-            payment__payment__lead=lead,
-            is_attended=False,
-            followup_status="Pending"
-        ).order_by("-created_at").first()
-
-        if existing_followup:
-            existing_followup.is_attended = True
-            existing_followup.attended_at = datetime.now()
-            existing_followup.followup_status = "Completed"
-            existing_followup.updated_by = str(user)
-            existing_followup.save()
-
-
-        # ==========================================
-        # ✅ NEW FOLLOWUP ENTRY
-        # ==========================================
-
-        if data.get("next_followup"):
-            PaymentFollowUp.objects.create(
-                payment=payment_history,
-                followup_date=data.get("next_followup"),
-                created_by=str(user),
+        if payment_info.pending_amount == 0 or payment_info.is_full_payment:
+            PaymentFollowUp.objects.filter(
+                payment__payment__lead=lead,
+                is_attended=False
+            ).update(
+                is_attended=True,
+                attended_at=datetime.now(),
+                followup_status="Completed",
+                updated_by=str(user)
             )
+        else:
+            existing_followup = PaymentFollowUp.objects.filter(
+                payment__payment__lead=lead,
+                is_attended=False,
+                followup_status="Pending"
+            ).order_by("-created_at").first()
+
+            if existing_followup:
+                existing_followup.is_attended = True
+                existing_followup.attended_at = datetime.now()
+                existing_followup.followup_status = "Completed"
+                existing_followup.updated_by = str(user)
+                existing_followup.save()
+
+            if data.get("next_followup"):
+                PaymentFollowUp.objects.create(
+                    payment=payment_history,
+                    followup_date=data.get("next_followup"),
+                    created_by=str(user),
+                )
 
         return "Payment Updated Successfully"
 

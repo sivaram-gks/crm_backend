@@ -12,7 +12,7 @@ from openpyxl.utils import get_column_letter
 from telecalling.models import (
     Lead, PaymentInfo, PaymentHistory, LossLeadDetail, FollowUp,
     CallDetails, CampaignName, LeadSource, PipelineStage,
-    User, CoursePlan, CourseName, SelectTag
+    User, CoursePlan, CourseName, SelectTag, Priority
 )
 from ..models import AdminLossActionLog, AdminApprovedLossLead
 
@@ -47,6 +47,7 @@ def fetch_all_leads_admin(**data):
             "course_plan",
             "course_name",
             "course",
+            "priority",
         )
 
         # 1. Search Filter
@@ -162,13 +163,21 @@ def fetch_all_leads_admin(**data):
             
             pending_amt = payment_info.pending_amount if payment_info else 0
 
-            PRIORITY_MAP = {
-                1: "Prospective",
-                2: "Interested",
-                3: "Just Follow Up",
-                4: "New Lead"
-            }
-            tag_name = PRIORITY_MAP.get(lead.priority_id) if lead.priority_id else (getattr(lead.priority, 'display_value', None) or (lead.priority.name if lead.priority else "New Lead"))
+            tag_name = "-"
+            tag_id_val = None
+
+            if lead.priority:
+                # Stage 3 (Won) or Stage 4 (Loss) should not show call tags
+                if lead.pipeline_stage_id in [3, 4]:
+                    tag_name = "-"
+                    tag_id_val = None
+                # If priority's linked pipeline_stage does not match lead's current stage, suppress mismatched tag
+                elif lead.priority.pipeline_stage_id and lead.priority.pipeline_stage_id != lead.pipeline_stage_id:
+                    tag_name = "-"
+                    tag_id_val = None
+                else:
+                    tag_name = getattr(lead.priority, 'display_value', None) or lead.priority.name or "-"
+                    tag_id_val = lead.priority_id
 
             leads.append({
                 # "s_no": idx,
@@ -178,12 +187,12 @@ def fetch_all_leads_admin(**data):
                 "assigned_to_id": lead.assigned_to_id,
                 "assigned_to": get_user_display_name(lead.assigned_to),
                 "stage": lead.pipeline_stage.name if lead.pipeline_stage else "New",
-                "pipeline": "Education",
+                "tag": tag_name,
+                "tag_id": tag_id_val,
                 "campaign": lead.campaign.name if lead.campaign else None,
                 "source": lead.lead_source.name if lead.lead_source else None,
                 "course_plan": lead.course_plan.courseplan if lead.course_plan else None,
                 "course": lead.course_name.coursename if lead.course_name else None,
-                "tag": tag_name,
                 "priority_id": lead.priority_id,
                 "next_followup": latest_followup.scheduled_at if latest_followup else None,
                 "amount": course_fee,
@@ -246,6 +255,8 @@ def get_add_lead_dropdowns_admin():
         telecallers = [{"id": u.id, "name": get_user_display_name(u)} for u in users_qs]
         return {
             "pipelines": pipelines,
+            "pipeline_stages": pipelines,
+            "pipeline": pipelines,
             "campaigns": campaigns,
             "sources": sources,
             "telecallers": telecallers
@@ -259,15 +270,24 @@ def add_new_lead_admin(user, **data):
     Creates a new lead with AnonymousUser safety and Figma specs.
     """
     try:
-        mobile_no = data.get("mobile_no") or data.get("mobile")
+        mobile_no = (data.get("mobile_no") or data.get("mobile") or "").strip()
         if not mobile_no:
             raise APIException("Mobile number is required")
         
-        # 1. Duplicate Check
-        existing_lead = Lead.objects.filter(mobile_no=mobile_no).select_related('assigned_to').first()
+        # 1. Ultra-Smart Duplicate Check (Clean Digits & Last 10 Digits Matching)
+        clean_digits = "".join(filter(str.isdigit, str(mobile_no)))
+        last_10 = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+        
+        existing_lead = None
+        if last_10:
+            existing_lead = Lead.objects.filter(
+                Q(mobile_no__icontains=mobile_no) |
+                Q(mobile_no__endswith=last_10)
+            ).select_related('assigned_to').first()
+            
         if existing_lead:
             assigned_name = get_user_display_name(existing_lead.assigned_to) or "another agent"
-            raise APIException(f"Mobile number {mobile_no} is already registered and assigned to {assigned_name}.")
+            raise APIException(f"Mobile number '{mobile_no}' is already registered and assigned to {assigned_name}.")
         
         # 2. Mandatory Name Validation
         first_name = (data.get("first_name") or "").strip()
@@ -652,19 +672,30 @@ def get_filter_dropdowns_admin():
         users_qs = User.objects.filter(is_active=True)
         telecallers = [{"id": u.id, "name": get_user_display_name(u)} for u in users_qs]
 
+        priorities_qs = Priority.objects.filter(is_active=True).order_by("id")
+        if not priorities_qs.exists():
+            priorities_qs = Priority.objects.all().order_by("id")
+
         priority_tags = [
-            {"id": 1, "name": "Prospective"},
-            {"id": 2, "name": "Interested"},
-            {"id": 3, "name": "Just Follow Up"}
+            {"id": p.id, "name": getattr(p, 'display_value', None) or p.name}
+            for p in priorities_qs
+        ]
+
+        pipelines = [
+            {"id": "Education", "name": "Education"},
+            {"id": "Product", "name": "Product"}
         ]
 
         return {
-            "pipeline_stages": pipeline_stages,
+            "pipelines": pipelines,
+            "pipeline_stages": pipelines,  # 👈 Guarantees Education & Product appear in Pipeline* dropdown!
+            "stages": pipeline_stages,     # 👈 Preserves actual stage options under 'stages'
             "lead_sources": lead_sources,
             "campaigns": campaigns,
             "course_plans": course_plans,
             "telecallers": telecallers,
-            "priority_tags": priority_tags
+            "priority_tags": priority_tags,
+            "tags": priority_tags
         }
     except Exception as e:
         raise APIException(str(e))

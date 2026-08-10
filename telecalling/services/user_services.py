@@ -28,37 +28,39 @@ import random
 def create_user(user_name,**data):
     try:
         user = User.objects.filter(email = data.get('email')).first()
-        number=User.objects.filter(mobile=data.get('mobile_number')).first()
         if user is not None:
             raise APIException("Email id Already exists")
+
+        number = None
+        if data.get('mobile_number'):
+            number = User.objects.filter(mobile=data.get('mobile_number')).first()
         if number is not None:
             raise APIException("Mobile is Already exists")
-        # password = data.get("email_id")[:3]+"1234"
 
-        user = User.objects.create_user(data.get('email'),data.get('email'),data.get('password'))                 
-        user.role.add(data.get('role_id'))   
-        user.first_name=data.get('name')
+        user = User.objects.create_user(data.get('username'),data.get('email'),data.get('password'))
+        if data.get('role_id'):
+            user.role.add(data.get('role_id'))
+        user.first_name=data.get('first_name')
         user.last_name=data.get('last_name')
         user.is_active=True
         user.mobile=data.get('mobile_number')
         user.gender = data.get('gender')
         user.ending_date = data.get('ending_date')
         user.address = data.get('address')
-        # user.role_id=data.get('role_id')
-        # user.user_profile = data.get('user_profile')
-        #user.user_type = data.get('user_type')
-        # logger.info(1.6)
         user.validate_token = User.objects.make_random_password(10) + uuid.uuid4().hex[:6].upper()
 
         user.save()
         data["user_id"] = user.id
-         
 
-        return user.id
+        return {
+    "id": user.id,
+    "username": user.username,
+    "email": user.email,
+    "first_name": user.first_name,
+    # "mobile": user.mobile
+}
     except Exception as e:
         raise APIException(e)
-
-
 
 
 def create_role(**data):

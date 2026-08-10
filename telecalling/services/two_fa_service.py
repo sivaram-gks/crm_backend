@@ -2,7 +2,7 @@ import pyotp
 import qrcode
 import io
 import base64
-from telecalling.models import UserSettings
+from adm.models import UserSettings
 
 def generate_2fa_secret(user):
     """

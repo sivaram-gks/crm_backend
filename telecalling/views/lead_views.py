@@ -60,6 +60,7 @@ class AddNewLead(APIView):
         mobile=serializers.CharField(required=True)
         campaign_id=serializers.IntegerField(required=False)
         enquiry_date=serializers.DateField(required=False,allow_null=True)
+        lead_source_id = serializers.IntegerField(required=False, allow_null=True) 
         
     def post(self,request):
         serializer=self.InputSerializers(data=request.data)
@@ -333,13 +334,12 @@ class FetchOneLossLeadDetail(APIView):
 class LossLeadUpdateApi(APIView):
     class InputSerializers(serializers.Serializer):
         lead_id = serializers.IntegerField(required=True)    
-        pipeline_stage_id=serializers.IntegerField(required=True)
-        priority_id=serializers.IntegerField(required=False)
-        enquiry_date=serializers.DateTimeField(required=False)
-        follow_up_days=serializers.CharField(required=True)
-        main_reason_id=serializers.IntegerField(required=True)
-        # sub_reason=serializers.CharField(required=True)
-        loss_reason=serializers.CharField(required=True,allow_blank=True)
+        pipeline_stage_id = serializers.IntegerField(required=False, default=4)
+        priority_id = serializers.IntegerField(required=False, allow_null=True)
+        enquiry_date = serializers.DateTimeField(required=False, allow_null=True)
+        follow_up_days = serializers.CharField(required=False, allow_null=True, allow_blank=True, default="0")
+        main_reason_id = serializers.IntegerField(required=False, allow_null=True)
+        loss_reason = serializers.CharField(required=False, allow_blank=True, allow_null=True, default="")
         
     def post(self,request):
         serializer = self.InputSerializers(data=request.data)
@@ -380,12 +380,11 @@ class WonLeadUpdateApi(APIView):
     class InputSerilaizers(serializers.Serializer):
         lead_id=serializers.IntegerField(required=True)
         pipeline_stage_id=serializers.IntegerField(required=True)
-        priority_id=serializers.IntegerField(required=False)
-        paid_amount=serializers.IntegerField(required=True)
-        pending_amount=serializers.IntegerField(required=False)
-        due_date=serializers.DateField(required=False)
-        # next_followup=serializers.DateTimeField(required=False)
-        notes=serializers.CharField(required=False)
+        priority_id=serializers.IntegerField(required=False, allow_null=True)
+        paid_amount=serializers.FloatField(required=False, default=0)
+        pending_amount=serializers.FloatField(required=False, default=0)
+        due_date=serializers.DateField(required=False, allow_null=True)
+        notes=serializers.CharField(required=False, allow_null=True, allow_blank=True)
         
     def post(self,request):
         serializer=self.InputSerilaizers(data=request.data)

@@ -114,7 +114,7 @@ def lead_upload_excel(**data):
             mobile_no=mobile_no,
             current_status="Working",
             pipeline_stage_id=1,
-            priority_id=4,
+            priority_id=None,
             assigned_to=telecaller,
             lead_source_id=lead_source_id,
             campaign_id=campaign

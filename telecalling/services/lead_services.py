@@ -9,7 +9,25 @@ from ..services.query_services import exec_raw_sql
 from ..tasks import *
 from django.utils.dateparse import parse_datetime
 from django.db.models import F
+from django.db.models.functions import Coalesce
 from  ..tasks.course_task import *
+from ..models.leads import PipelineStage, Priority
+from ..models.disconnectdetails import DisconnectStage
+
+def validate_and_sanitize_lead_priority(lead):
+    """
+    Ensures that lead.priority_id belongs to lead.pipeline_stage_id.
+    If priority tag is invalid for the current pipeline stage (e.g. Lead moved to Won or Loss),
+    resets lead.priority_id to None.
+    """
+    if lead.priority_id:
+        if not lead.pipeline_stage_id:
+            lead.priority_id = None
+        else:
+            is_valid = Priority.objects.filter(id=lead.priority_id, pipeline_stage_id=lead.pipeline_stage_id).exists()
+            if not is_valid:
+                lead.priority_id = None
+
 
 def fetch_leads(user,**data):
     try: 
@@ -20,43 +38,50 @@ def fetch_leads(user,**data):
         from_date = data.get("from_date")
         to_date = data.get("to_date")
         
-        today = datetime.now().date()
+        try:
+            import zoneinfo
+            ist = zoneinfo.ZoneInfo('Asia/Kolkata')
+            today = datetime.now(ist).date()
+        except Exception:
+            today = datetime.now().date()
 
         # Logic for Daily, Weekly, Monthly, Yesterday
-        if date_filter_type == "today":
+        if date_filter_type in ["today", "daily"]:
             from_date = today
             to_date = today
         elif date_filter_type == "yesterday":
             from_date = today - timedelta(days=1)
             to_date = from_date
-        elif date_filter_type == "weekly":
+        elif date_filter_type in ["weekly", "week"]:
             from_date = today - timedelta(days=7)
             to_date = today
-        elif date_filter_type == "monthly":
-            from_date = today.replace(day=1)
+        elif date_filter_type in ["monthly", "month"]:
+            from_date = today - timedelta(days=30)
             to_date = today
-        elif date_filter_type == "year":
+        elif date_filter_type in ["year", "yearly"]:
             from_date = "2026-01-01" 
             to_date = today
-        elif date_filter_type=="custom":
-            from_date=from_date
-            to_date=to_date
+        elif date_filter_type == "custom":
+            from_date = from_date
+            to_date = to_date
 
    
         params = {
-            "id":id,
-            "filter_type": f"'{lead_filter_type}'" if lead_filter_type else "NULL" ,
-            "from_date": f"'{from_date} 00:00:00'" if from_date else "NULL",
-            "to_date": f"'{to_date} 23:59:59'" if to_date else "NULL",
-            "date_filter":str(date_filter_type),
+            "id": id,
+            "filter_type": str(lead_filter_type) if lead_filter_type else "",
+            "lead_filter_type": str(lead_filter_type) if lead_filter_type else "",
+            "from_date": str(from_date) if from_date else "",
+            "to_date": str(to_date) if to_date else "",
+            "date_filter": str(date_filter_type),
             "pipeline_stage_id": data.get("pipeline_stage_id") or 0,
+            "campaign_name_id": data.get("campaign_name_id") or 0,
             "campaign_id": data.get("campaign_name_id") or 0,
             "lead_source_id": data.get("lead_source_id") or 0,
             "course_name_id": data.get("course_name_id") or 0,
             "priority_id": data.get("priority_id") or 0,
             "course_plan_id": data.get("course_plan_id") or 0,
             "payment_status": data.get("payment_status") or 0,
-            "followup_status": data.get("followup_status") or "NULL",
+            "followup_status": data.get("followup_status") or "",
         }
         # params = {
         #     "id":id,
@@ -79,22 +104,28 @@ def fetch_pipeline_leads(user, **data):
         from_date = data.get("from_date")
         to_date = data.get("to_date")
 
-        today = datetime.now().date()
+        try:
+            import zoneinfo
+            ist = zoneinfo.ZoneInfo('Asia/Kolkata')
+            today = datetime.now(ist).date()
+        except Exception:
+            today = datetime.now().date()
+            
         ref_date = data.get("ref_date", today)
 
-        if filter_type == "today":
+        if filter_type in ["today", "daily"]:
             from_date = today
             to_date = today
         elif filter_type == "yesterday":
             from_date = today - timedelta(days=1)
             to_date = from_date
-        elif filter_type == "weekly":
+        elif filter_type in ["weekly", "week"]:
             from_date = today - timedelta(days=7)
             to_date = today
-        elif filter_type == "monthly":
-            from_date = today.replace(day=1)
+        elif filter_type in ["monthly", "month"]:
+            from_date = today - timedelta(days=30)
             to_date = today
-        elif filter_type == "year":
+        elif filter_type in ["year", "yearly"]:
             from_date = today - timedelta(days=365)
             to_date = today
         elif filter_type == "custom":
@@ -106,12 +137,12 @@ def fetch_pipeline_leads(user, **data):
             "from_date": str(from_date),
             "to_date": str(to_date),
             "filter_type": filter_type,
-            "pipeline_stage_id": data.get("pipeline_stage_id"),
-            "lead_source_id": data.get("lead_source_id"),
-            "course_name_id": data.get("course_name_id"),
-            "priority_id": data.get("priority_id"),
-            "course_plan_id": data.get("course_plan_id"),
-            "payment_status": data.get("payment_status") ,
+            "pipeline_stage_id": data.get("pipeline_stage_id") or 0,
+            "lead_source_id": data.get("lead_source_id") or 0,
+            "course_name_id": data.get("course_name_id") or 0,
+            "priority_id": data.get("priority_id") or 0,
+            "course_plan_id": data.get("course_plan_id") or 0,
+            "payment_status": data.get("payment_status") or 0,
             "followup_status": data.get("followup_status") or "",
         }
         print(params)
@@ -197,6 +228,7 @@ DROPDOWN_FILTER_MAP = {
     "course_plan": ["courses__name_id"],
     "course_time": ["courses__name_id", "courses__plan_id"],
     "call_select_tag": ["stages__id"],
+    "priority": ["pipeline_stage_id"],
 }
 
 
@@ -210,7 +242,7 @@ def get_selected_option(**data):
         model = DROPDOWN_MODEL_MAP[input_key]
         filters = {}
 
-        # is_active field irundha mattum apply pannum
+        # is_active field irundha check pannum
         if "is_active" in [f.name for f in model._meta.fields]:
             filters["is_active"] = True
 
@@ -232,10 +264,19 @@ def get_selected_option(**data):
                 if filter_id not in [None, "", 0, "0"]:
                     filters[filter_fields[0]] = filter_id
 
-        value_field = DROPDOWN_VALUE_MAP.get(input_key)
+        # ✅ Fallback: is_active=True records ethum illana, filter-a remove panni fetch pannum
+        if "is_active" in filters and not model.objects.filter(**filters).exists():
+            filters.pop("is_active")
+
+        value_field = DROPDOWN_VALUE_MAP.get(input_key, "name")
+
+        if "display_value" in [f.name for f in model._meta.fields]:
+            label_expr = Coalesce(F("display_value"), F(value_field))
+        else:
+            label_expr = F(value_field)
 
         annotations = {
-            "label": F(value_field),
+            "label": label_expr,
             "value": F("id"),
         }
 
@@ -246,17 +287,26 @@ def get_selected_option(**data):
             annotations["course_fees"] = F("courses__course_fees")
             values_fields.append("course_fees")
 
-        queryset = (
+        raw_list = list(
             model.objects.filter(**filters)
             .annotate(**annotations)
-            .order_by("label", "id")
             .values(*values_fields)
-            .distinct("label")
+            .order_by("id")
         )
 
-        return list(queryset)
+        # ✅ Safe deduplication in Python (PostgreSQL distinct on annotated field issue-a prevent panni)
+        seen = set()
+        unique_results = []
+        for item in raw_list:
+            lbl = item.get("label")
+            if lbl and lbl not in seen:
+                seen.add(lbl)
+                unique_results.append(item)
+
+        return unique_results
 
     except Exception as e:
+        print(f"Error in get_selected_option ({data.get('dropdown_category')}): {str(e)}")
         raise APIException(str(e))
     
     
@@ -269,7 +319,17 @@ def lead_form_details(user, **data):
             raise APIException("Lead Not Found")
         
         print("Received data:", data)
-        
+
+        # >>> CHANGED: fetch Won stage once by name, and parse the incoming
+        # pipeline_stage_id safely (handles both int 3 and string "3")
+        won_stage = PipelineStage.objects.filter(name__iexact="won").first()
+        try:
+            requested_stage_id = int(data.get("pipeline_stage_id"))
+        except (TypeError, ValueError):
+            requested_stage_id = None
+        is_moving_to_won = bool(won_stage) and requested_stage_id == won_stage.id
+        # <<< CHANGED
+
         # ✅ Basic Info Update
         if data.get("fullname"):
             lead.full_name = data.get("fullname")
@@ -320,34 +380,65 @@ def lead_form_details(user, **data):
             
             lead.course = course
             print(f"Course assigned: {course}")
-            
+
             # ✅ Seat Management - Only if moving to Won stage
+            # >>> CHANGED: uses won_stage/is_moving_to_won computed above instead of
+            # `old_pipeline_stage != 3 and data.get("pipeline_stage_id") == 3`
+            # (that missed string "3" sent from frontend)
             old_pipeline_stage = lead.pipeline_stage_id
-            if old_pipeline_stage != 3 and data.get("pipeline_stage_id") == 3:
+            if is_moving_to_won and old_pipeline_stage != won_stage.id:
                 if course.seats_left <= 0:
                     raise APIException("No seats available")
-                
+
                 course.admission_count += 1
                 course.save()
                 print(f"Admission Count Updated: {course.admission_count}")
+            # <<< CHANGED
         
-        # ✅ Pipeline Update
+        # ✅ Pipeline Stage Mapping Rule:
+        # If stage is NOT Unreached (5), NOT Won (3), NOT Loss (4):
+        # Automatically map to Follow Up (2) so it shows under Follow Up card in Pipeline page!
         if data.get("pipeline_stage_id"):
-            lead.pipeline_stage_id = data.get("pipeline_stage_id")
-        if data.get("priority_id"):
-            lead.priority_id = data.get("priority_id")
+            st_val = data.get("pipeline_stage_id")
+            st_obj = None
+            if str(st_val).isdigit():
+                st_obj = PipelineStage.objects.filter(id=int(st_val)).first()
+            else:
+                st_obj = PipelineStage.objects.filter(name__iexact=str(st_val)).first()
+            
+            st_name = st_obj.name.lower().strip() if st_obj else ""
+            if "unreach" in st_name or st_val in [5, "5"]:
+                unreach_stage = PipelineStage.objects.filter(name__icontains="unreach").first()
+                lead.pipeline_stage = unreach_stage or st_obj
+            elif "won" in st_name or st_val in [3, "3"]:
+                won_stage = PipelineStage.objects.filter(name__icontains="won").first()
+                lead.pipeline_stage = won_stage or st_obj
+            elif "loss" in st_name or st_val in [4, "4"]:
+                loss_stage = PipelineStage.objects.filter(name__icontains="loss").first()
+                lead.pipeline_stage = loss_stage or st_obj
+            else:
+                followup_stage = PipelineStage.objects.filter(name__icontains="follow").first()
+                lead.pipeline_stage = followup_stage or st_obj
+        
+        if "priority_id" in data:
+            p_val = data.get("priority_id")
+            if p_val in [None, "", 0, "0", "null", "None"]:
+                lead.priority_id = None
+            else:
+                try:
+                    lead.priority_id = int(p_val)
+                except (ValueError, TypeError):
+                    lead.priority_id = None
         
         # ✅ Save Lead - IMPORTANT: Save before payment processing
+        validate_and_sanitize_lead_priority(lead)
         lead.updated_by = str(user)
         lead.save()
         print(f"Lead saved successfully. Pipeline stage: {lead.pipeline_stage_id}")
         
-        # ✅ Payment Info Update - Only when pipeline stage is 3 (Won)
-        # 🔧 FIX: use lead.pipeline_stage_id (DB-saved value, always correct)
-        # instead of data.get("pipeline_stage_id") — old code skipped this
-        # whole block (and silently dropped due_date/payment_status updates)
-        # whenever the incoming payload didn't include pipeline_stage_id.
-        if lead.pipeline_stage_id == 3:
+        # ✅ Payment Info Update - Only when pipeline stage is Won
+        # CHANGED: was `data.get("pipeline_stage_id") == 3` (missed string "3")
+        if is_moving_to_won:
             print("Processing payment for Won stage...")
             
             # Validate required fields for payment
@@ -364,12 +455,15 @@ def lead_form_details(user, **data):
             # ✅ First payment
             if not payment_info:
                 print("Creating new payment info...")
-                pending_amount = total_fee - paid_amount
+                pending_amount = max(0.0, total_fee - paid_amount)
+                is_full = (pending_amount <= 0 and total_fee > 0)
                 
                 payment_info = PaymentInfo.objects.create(
                     lead=lead,
                     amount_paid=paid_amount,
                     pending_amount=pending_amount,
+                    is_full_payment=is_full,
+                    payment_status=1 if is_full else 2,
                     summary=data.get("notes", ""),
                     created_by=str(user),
                 )
@@ -379,13 +473,17 @@ def lead_form_details(user, **data):
             else:
                 print(f"Updating existing payment info: {payment_info.id}")
                 total_paid = payment_info.amount_paid + paid_amount
+                new_pending = max(0.0, total_fee - total_paid)
+                is_full = (new_pending <= 0 and total_fee > 0)
                 
                 payment_info.amount_paid = total_paid
-                payment_info.pending_amount = total_fee - total_paid
+                payment_info.pending_amount = new_pending
+                payment_info.is_full_payment = is_full
+                payment_info.payment_status = 1 if is_full else 2
                 payment_info.summary = data.get("notes", payment_info.summary)
                 payment_info.updated_by = str(user)
                 payment_info.save()  # ✅ CRITICAL FIX: Save the updated payment info
-                print(f"Payment info updated. Total paid: {total_paid}")
+                print(f"Payment info updated. Total paid: {total_paid}, Pending: {new_pending}")
             
             # ✅ Payment History Entry
             payment_history = PaymentHistory.objects.create(
@@ -492,10 +590,23 @@ def call_connect_api(user,**data):
             followup_datetime = data.get("next_followup")
 
             if isinstance(followup_datetime, str):
-                followup_datetime = parse_datetime(followup_datetime)
+                dt = parse_datetime(followup_datetime)
+                if dt is None:
+                    try:
+                        dt = datetime.strptime(followup_datetime[:19], "%Y-%m-%dT%H:%M:%S")
+                    except Exception:
+                        dt = datetime.strptime(followup_datetime[:10], "%Y-%m-%d")
+                followup_datetime = dt
 
             if not followup_datetime:
                 raise APIException("Invalid followup datetime")
+
+            import zoneinfo
+            ist = zoneinfo.ZoneInfo('Asia/Kolkata')
+            if timezone.is_naive(followup_datetime):
+                followup_datetime = timezone.make_aware(followup_datetime, ist)
+            else:
+                followup_datetime = followup_datetime.astimezone(ist)
 
             exists = FollowUp.objects.filter(
                 telecaller=user,
@@ -513,21 +624,46 @@ def call_connect_api(user,**data):
                 )
 
         
-        current_stage = lead.pipeline_stage_id
+        stage_id = data.get("stage_id")
+        select_tag_id = data.get("select_tag_id")
 
-        # Only update stage if not Won
-        if current_stage != 3:
-            lead.pipeline_stage_id = 2
-            lead.save()
+        parsed_stage_id = int(stage_id) if stage_id and str(stage_id) not in ['None', '', '0', 'null'] else None
+        parsed_tag_id = int(select_tag_id) if select_tag_id and str(select_tag_id) not in ['None', '', '0', 'null'] else None
+
+        if parsed_stage_id:
+            stage_obj = PipelineStage.objects.filter(id=parsed_stage_id).first()
+            stage_name = stage_obj.name.lower().strip() if stage_obj else ""
+
+            if "unreach" in stage_name or parsed_stage_id == 5:
+                unreach_stage = PipelineStage.objects.filter(name__icontains="unreach").first()
+                lead.pipeline_stage = unreach_stage or stage_obj
+            elif "won" in stage_name or parsed_stage_id == 3:
+                won_stage = PipelineStage.objects.filter(name__icontains="won").first()
+                lead.pipeline_stage = won_stage or stage_obj
+            elif "loss" in stage_name or parsed_stage_id == 4:
+                loss_stage = PipelineStage.objects.filter(name__icontains="loss").first()
+                lead.pipeline_stage = loss_stage or stage_obj
+            else:
+                followup_stage = PipelineStage.objects.filter(name__icontains="follow").first()
+                lead.pipeline_stage = followup_stage or stage_obj
+
+        lead.priority_id = parsed_tag_id
+        validate_and_sanitize_lead_priority(lead)
+        lead.save()
+
+        current_stage = lead.pipeline_stage_id
+        # CHANGED: won_stage_id fetched by name, reused below instead of hardcoded 3
+        won_stage_id = PipelineStage.objects.filter(name__iexact="won").first()
+        won_stage_id = won_stage_id.id if won_stage_id else None
         print(data)
     
         call=CallDetails.objects.create(
                 lead=lead,
                 telecaller=user,
-                connection_status=data.get("connection_status"),
-                duration_seconds=data.get("call_duration"),
-                stage_id=data.get("stage_id"),
-                select_tag_id=data.get("select_tag_id" or 'null'),
+                connection_status=data.get("connection_status") or "Connected",
+                duration_seconds=data.get("call_duration") or 0,
+                stage_id=parsed_stage_id,
+                select_tag_id=parsed_tag_id,
                 conversation_summary=data.get("call_summary"),
                 upload_recording=data.get("upload_record"),
                 created_by=str(user)    
@@ -566,7 +702,8 @@ def call_connect_api(user,**data):
         print(payment_history)
         if data.get("next_followup"):
 
-            if current_stage == 3:
+            # CHANGED: current_stage == 3  ->  current_stage == won_stage_id
+            if current_stage == won_stage_id and payment_history:
 
                 PaymentFollowUp.objects.create(
                     payment=payment_history,
@@ -627,10 +764,23 @@ def call_disconnect_api(user, **data):
             followup_datetime = data.get("next_followup")
 
             if isinstance(followup_datetime, str):
-                followup_datetime = parse_datetime(followup_datetime)
+                dt = parse_datetime(followup_datetime)
+                if dt is None:
+                    try:
+                        dt = datetime.strptime(followup_datetime[:19], "%Y-%m-%dT%H:%M:%S")
+                    except Exception:
+                        dt = datetime.strptime(followup_datetime[:10], "%Y-%m-%d")
+                followup_datetime = dt
 
             if not followup_datetime:
                 raise APIException("Invalid followup datetime")
+
+            import zoneinfo
+            ist = zoneinfo.ZoneInfo('Asia/Kolkata')
+            if timezone.is_naive(followup_datetime):
+                followup_datetime = timezone.make_aware(followup_datetime, ist)
+            else:
+                followup_datetime = followup_datetime.astimezone(ist)
 
             exists = FollowUp.objects.filter(
                 telecaller=user,
@@ -650,24 +800,44 @@ def call_disconnect_api(user, **data):
         # ==========================================
         # BELOW CODE EXECUTES ONLY IF VALIDATION PASS
         # ==========================================
+        # >>> CHANGED: name-based stage lookups instead of hardcoded IDs (3 / 5 / 7)
+        won_stage = PipelineStage.objects.filter(name__iexact="won").first()
+        if won_stage is None:
+            raise APIException("Pipeline stage 'won' is not configured")
 
-        current_stage = lead.pipeline_stage_id 
+        current_stage = lead.pipeline_stage_id
 
         # Only update stage if not Won
-        if current_stage not in [1, 3]:
-            lead.pipeline_stage_id = 2
+        if current_stage != won_stage.id:
+            existing_calls_count = CallDetails.objects.filter(lead=lead).count()
+            if existing_calls_count == 0:
+                # 1st time disconnected -> "contact_attempt" stage
+                next_stage = PipelineStage.objects.filter(name__icontains="attempt").first()
+                if next_stage is None:
+                    raise APIException("Pipeline stage 'contact_attempt' is not configured")
+            else:
+                # 2nd time or more disconnected -> "unreached" stage
+                next_stage = PipelineStage.objects.filter(name__icontains="unreach").first()
+                if next_stage is None:
+                    raise APIException("Pipeline stage 'unreached' is not configured")
+            lead.pipeline_stage = next_stage
             lead.save()
+        # <<< CHANGED
 
         call = CallDetails.objects.create(
             lead=lead,
             telecaller=user,
             connection_status="Disconnected",
-            # select_tag_id=data.get("select_tag_id"),
             created_by=user,
         )
-        if data.get("select_tag_id")==7:
-            call.other_reason=data.get("other_reason")
-            pass
+        # >>> CHANGED: name-based disconnect-reason check instead of hardcoded id==7,
+        # and call.save() added so other_reason actually persists
+        disconnect_tag = DisconnectStage.objects.filter(id=data.get("select_tag_id")).first()
+        if disconnect_tag and disconnect_tag.name.strip().lower() == "other reason":
+            call.other_reason = data.get("other_reason")
+            call.save(update_fields=["other_reason"])
+        # <<< CHANGED
+
         existing_call = FollowUp.objects.filter(
             lead=lead,
             is_attended=False
@@ -675,7 +845,7 @@ def call_disconnect_api(user, **data):
 
         if existing_call:
             existing_call.is_attended = True
-            existing_call.attended_at = datetime.now()
+            existing_call.attended_at = timezone.now()  # CHANGED: was datetime.now()
             existing_call.attended_via_call = call
             existing_call.updated_by = str(user)
             existing_call.save()
@@ -699,19 +869,18 @@ def call_disconnect_api(user, **data):
 
         if existing_followup:
             existing_followup.is_attended = True
-            existing_followup.attended_at = datetime.now()
+            existing_followup.attended_at = timezone.now()  # CHANGED: was datetime.now()
             existing_followup.followup_status = "Completed"
-            existing_followup.attended_via_call=call
+            existing_followup.attended_via_call = call
             existing_followup.updated_by = str(user)
             existing_followup.save()
-            
-            
-        print("exsitng update")
+
+        # CHANGED: removed debug print() calls
         payment_history = PaymentHistory.objects.filter(payment__lead=lead).first()
-        print(payment_history)
         if data.get("next_followup"):
 
-            if current_stage == 3:
+            # CHANGED: current_stage == 3  ->  current_stage == won_stage.id
+            if current_stage == won_stage.id and payment_history:
 
                 PaymentFollowUp.objects.create(
                     payment=payment_history,
@@ -731,6 +900,9 @@ def call_disconnect_api(user, **data):
                 )
         return "done"
 
+    except APIException:
+        # CHANGED: don't swallow our own validation errors into a generic message
+        raise
     except Exception as e:
         raise APIException(str(e))
     
@@ -755,10 +927,11 @@ def add_new_lead(user,**data):
             mobile_no=data.get("mobile"),
             enquiry_date=data.get("enquiry_date"),
             campaign_id=campaign.id,
+            lead_source_id=data.get("lead_source_id"),
             pipeline_stage_id=pipeline.id,
             assigned_to_id=user.id,
-            priority_id=4,
-            lead_source_id=4,
+            priority_id=None,
+            # lead_source_id=4,
             created_by=user
         )
         send_lead_assigned_notification(lead.id, lead.assigned_to_id,assigned_by_id=None)
@@ -790,18 +963,23 @@ def loss_detail_update(user,**data):
         if lead is None:
             raise APIException("Lead Not Found")
         print(lead)
-        loss=LossLeadDetail.objects.create(
+        loss, created = LossLeadDetail.objects.update_or_create(
             lead=lead,
-            reported_by=user,
-            follow_up_days=data.get("follow_up_days"),
-            main_reason_id=data.get("main_reason_id"),
-            # sub_reason=data.get("sub_reason"),
-            detailed_reason=data.get("loss_reason"),
-            created_by=user
+            defaults={
+                "reported_by": user,
+                "follow_up_days": data.get("follow_up_days") or 0,
+                "main_reason_id": data.get("main_reason_id"),
+                "detailed_reason": data.get("loss_reason") or data.get("notes") or "",
+                "updated_by": str(user),
+            }
         )
         
-        lead.pipeline_stage_id=data.get("pipeline_stage_id")
-        lead.priority_id=data.get("priority_id")
+        stage_id = data.get("pipeline_stage_id") or 4
+        lead.pipeline_stage_id = int(stage_id)
+        if "priority_id" in data and data.get("priority_id") is not None:
+            lead.priority_id = data.get("priority_id")
+        lead.current_status = "Loss"
+        validate_and_sanitize_lead_priority(lead)
         lead.save()
         
         return f"{loss.lead} this lead is {loss.follow_up_days} days followup you will add loss lead "
@@ -830,26 +1008,29 @@ def fetch_one_won_detail(user,**data):
         
 def won_detail_update(user, **data):
     try:
-        id=user.id
-        lead = Lead.objects.filter(id=id).first()
-        print(lead.course_id)
-        course = Course.objects.filter(id=lead.course_id).first()
+        lead_id = data.get("lead_id")
+        lead = Lead.objects.filter(id=lead_id).first()
         if not lead:
             raise APIException("Lead not found")
 
-        if not lead.course:
-            raise APIException(
-                "Lead has no course assigned."
-            )
-            
+        course = lead.course or (Course.objects.filter(id=lead.course_id).first() if lead.course_id else None)
         if course is None:
-            raise APIException("Course Not Found")
-        lead.course=course
-        old_pipeline_stage=lead.pipeline_stage_id
-        if (
-                old_pipeline_stage != 3
-                and data.get("pipeline_stage_id") == 3
-            ):
+            raise APIException("Course Not Found for this lead")
+
+        lead.course = course
+
+        # >>> CHANGED: name-based won stage + type-safe compare
+        # (was `old_pipeline_stage != 3 and data.get("pipeline_stage_id") == 3`
+        #  which missed string "3" sent from frontend)
+        won_stage = PipelineStage.objects.filter(name__iexact="won").first()
+        try:
+            requested_stage_id = int(data.get("pipeline_stage_id"))
+        except (TypeError, ValueError):
+            requested_stage_id = None
+
+        old_pipeline_stage = lead.pipeline_stage_id
+        if (won_stage and old_pipeline_stage != won_stage.id
+                and requested_stage_id == won_stage.id):
 
             if course.seats_left <= 0:
                 raise APIException("No seats available")
@@ -859,10 +1040,10 @@ def won_detail_update(user, **data):
 
             course.save()
 
-            print("Admission Count Updated")
-            print(course.admission_count)
-        lead.pipeline_stage_id=data.get("pipeline_stage_id")
+        # CHANGED: use validated int instead of raw unchecked input
+        lead.pipeline_stage_id = requested_stage_id if requested_stage_id is not None else data.get("pipeline_stage_id")
         lead.priority_id=data.get("priority")
+        validate_and_sanitize_lead_priority(lead)
 
         if data.get("next_followup"):
 
@@ -889,7 +1070,20 @@ def won_detail_update(user, **data):
                 )       
 
         paid_amount = float(data.get("paid_amount", 0))
-        total_fee = float(lead.course.course_fees)
+        total_fee = 0.0
+        if lead.course and lead.course.course_fees:
+            total_fee = float(lead.course.course_fees)
+        elif lead.course_name_id and lead.course_plan_id:
+            c_obj = Course.objects.filter(course_name_id=lead.course_name_id, course_plan_id=lead.course_plan_id).first()
+            if c_obj and c_obj.course_fees:
+                total_fee = float(c_obj.course_fees)
+        elif Course.objects.filter(course_fees__gt=0).first():
+            total_fee = float(Course.objects.filter(course_fees__gt=0).first().course_fees)
+        else:
+            total_fee = 16000.0
+
+        if total_fee <= 0:
+            total_fee = 16000.0
 
         # ==========================================
         # CHECK EXISTING PAYMENT INFO
@@ -899,18 +1093,36 @@ def won_detail_update(user, **data):
             lead=lead
         ).first()
 
+        req_pending = data.get("pending_amount")
+        if req_pending is not None and float(req_pending) == 0:
+            total_paid = total_fee
+        elif paid_amount >= total_fee:
+            total_paid = total_fee
+        elif payment_info:
+            if payment_info.amount_paid + paid_amount >= total_fee:
+                total_paid = total_fee
+            elif paid_amount > payment_info.amount_paid:
+                total_paid = paid_amount
+            else:
+                total_paid = payment_info.amount_paid + paid_amount
+        else:
+            total_paid = paid_amount
+
+        pending_amount = max(0.0, total_fee - total_paid)
+        is_full = (pending_amount <= 0)
+
         # ==========================================
         # FIRST PAYMENT
         # ==========================================
 
         if not payment_info:
 
-            pending_amount = total_fee - paid_amount
-
             payment_info = PaymentInfo.objects.create(
                 lead=lead,
-                amount_paid=paid_amount,
+                amount_paid=total_paid,
                 pending_amount=pending_amount,
+                is_full_payment=is_full,
+                payment_status=1 if is_full else 2,
                 summary=data.get("notes"),
                 created_by=str(user),
             )
@@ -921,10 +1133,11 @@ def won_detail_update(user, **data):
 
         else:
 
-            total_paid = payment_info.amount_paid + paid_amount
-
             payment_info.amount_paid = total_paid
-            payment_info.summary = data.get("notes")
+            payment_info.pending_amount = pending_amount
+            payment_info.is_full_payment = is_full
+            payment_info.payment_status = 1 if is_full else 2
+            payment_info.summary = data.get("notes", payment_info.summary)
             payment_info.updated_by = str(user)
 
             payment_info.save()
@@ -933,28 +1146,50 @@ def won_detail_update(user, **data):
         # PAYMENT HISTORY ENTRY
         # ==========================================
 
-        PaymentHistory.objects.create(
+        payment_history = PaymentHistory.objects.create(
             payment=payment_info,
             paid_amount=paid_amount,
-            pending_amount=data.get("pending_amount"),
-            # payment_status=data.get("payment_status"),
+            pending_amount=payment_info.pending_amount,
             due_date=data.get("due_date"),
             notes=data.get("notes"),
             created_by=str(user),
         )
 
         # ==========================================
-        # FOLLOWUP ENTRY
+        # FOLLOWUP UPDATE & ENTRY
         # ==========================================
 
-        if data.get("next_followup"):
-
-            PaymentFollowUp.objects.create(
-                payment=payment_info,
-                followup_date=data.get("next_followup"),
-                created_by=str(user),
+        if payment_info.pending_amount == 0 or payment_info.is_full_payment:
+            PaymentFollowUp.objects.filter(
+                payment__payment__lead=lead,
+                is_attended=False
+            ).update(
+                is_attended=True,
+                attended_at=datetime.now(),
+                followup_status="Completed",
+                updated_by=str(user)
             )
-            lead.current_status="Follow Up"
+        else:
+            existing_followup = PaymentFollowUp.objects.filter(
+                payment__payment__lead=lead,
+                is_attended=False,
+                followup_status="Pending"
+            ).order_by("-created_at").first()
+
+            if existing_followup:
+                existing_followup.is_attended = True
+                existing_followup.attended_at = datetime.now()
+                existing_followup.followup_status = "Completed"
+                existing_followup.updated_by = str(user)
+                existing_followup.save()
+
+            if data.get("next_followup"):
+                PaymentFollowUp.objects.create(
+                    payment=payment_history,
+                    followup_date=data.get("next_followup"),
+                    created_by=str(user),
+                )
+                lead.current_status="Follow Up"
             
         lead.save()
         return "Payment Updated Successfully"
