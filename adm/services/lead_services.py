@@ -14,7 +14,7 @@ from telecalling.models import (
     CallDetails, CampaignName, LeadSource, PipelineStage,
     User, CoursePlan, CourseName, SelectTag, Priority
 )
-from ..models import AdminLossActionLog, AdminApprovedLossLead
+from ..models import AdminLossActionLog, AdminApprovedLossLead, AdminLeadReassignHistory
 
 def get_user_display_name(user_obj):
     
@@ -95,16 +95,26 @@ def fetch_all_leads_admin(**data):
         if from_date and to_date:
             base_qs = base_qs.filter(enquiry_date__date__range=[from_date, to_date])
 
-        # 5. Logic for Tab Classifications (Directly aligned with DB pipeline_stage_id: 1=New, 2=Followup, 3=Won, 4=Lost)
+        # 5. Exclude ONLY UNAPPROVED loss leads (waiting in Loss Approval queue) from main leads list
+        # Approved loss leads (in AdminApprovedLossLead) remain in main leads list under 'lost' tab!
+        approved_loss_lead_ids = AdminApprovedLossLead.objects.values_list("lead_id", flat=True)
+        unapproved_loss_ids = Lead.objects.filter(
+            Q(pipeline_stage_id=4) | Q(pipeline_stage__name__icontains="loss")
+        ).exclude(
+            id__in=approved_loss_lead_ids
+        ).values_list("id", flat=True)
+
+        base_qs = base_qs.exclude(id__in=unapproved_loss_ids)
+
         new_lead_qs = base_qs.filter(Q(pipeline_stage_id=1) | Q(pipeline_stage__name__icontains="new")).distinct()
         follow_up_qs = base_qs.filter(Q(pipeline_stage_id=2) | Q(pipeline_stage__name__icontains="follow")).distinct()
         won_qs = base_qs.filter(Q(pipeline_stage_id=3) | Q(pipeline_stage__name__icontains="won")).distinct()
         lost_qs = base_qs.filter(Q(pipeline_stage_id=4) | Q(pipeline_stage__name__icontains="loss") | Q(pipeline_stage__name__icontains="lost")).distinct()
 
-        # Missed followups: unattended past followups not in main stages
+        # Missed / Pending followups: unattended past followups
         missed_follow_up_qs = base_qs.filter(
             id__in=FollowUp.objects.filter(is_attended=False, scheduled_at__lt=now).values_list("lead_id", flat=True)
-        ).exclude(id__in=new_lead_qs.values_list("id", flat=True)).exclude(id__in=follow_up_qs.values_list("id", flat=True)).exclude(id__in=won_qs.values_list("id", flat=True)).exclude(id__in=lost_qs.values_list("id", flat=True)).distinct()
+        ).exclude(id__in=won_qs.values_list("id", flat=True)).exclude(id__in=lost_qs.values_list("id", flat=True)).distinct()
 
         tabs = {
             "all": base_qs,
@@ -167,17 +177,16 @@ def fetch_all_leads_admin(**data):
             tag_id_val = None
 
             if lead.priority:
-                # Stage 3 (Won) or Stage 4 (Loss) should not show call tags
-                if lead.pipeline_stage_id in [3, 4]:
-                    tag_name = "-"
-                    tag_id_val = None
-                # If priority's linked pipeline_stage does not match lead's current stage, suppress mismatched tag
-                elif lead.priority.pipeline_stage_id and lead.priority.pipeline_stage_id != lead.pipeline_stage_id:
-                    tag_name = "-"
-                    tag_id_val = None
-                else:
-                    tag_name = getattr(lead.priority, 'display_value', None) or lead.priority.name or "-"
-                    tag_id_val = lead.priority_id
+                tag_name = getattr(lead.priority, 'display_value', None) or lead.priority.name or "-"
+                tag_id_val = lead.priority_id
+
+            c_plan_name = None
+            if lead.course_plan:
+                c_plan_name = getattr(lead.course_plan, 'courseplan', None) or getattr(lead.course_plan, 'name', None)
+
+            c_name = None
+            if lead.course_name:
+                c_name = getattr(lead.course_name, 'coursename', None) or getattr(lead.course_name, 'name', None)
 
             leads.append({
                 # "s_no": idx,
@@ -191,8 +200,8 @@ def fetch_all_leads_admin(**data):
                 "tag_id": tag_id_val,
                 "campaign": lead.campaign.name if lead.campaign else None,
                 "source": lead.lead_source.name if lead.lead_source else None,
-                "course_plan": lead.course_plan.courseplan if lead.course_plan else None,
-                "course": lead.course_name.coursename if lead.course_name else None,
+                "course_plan": c_plan_name,
+                "course": c_name,
                 "priority_id": lead.priority_id,
                 "next_followup": latest_followup.scheduled_at if latest_followup else None,
                 "amount": course_fee,
@@ -669,8 +678,53 @@ def get_filter_dropdowns_admin():
         course_plans_qs = CoursePlan.objects.all()
         course_plans = [{"id": cp.id, "name": getattr(cp, 'courseplan', getattr(cp, 'name', str(cp)))} for cp in course_plans_qs]
 
-        users_qs = User.objects.filter(is_active=True)
-        telecallers = [{"id": u.id, "name": get_user_display_name(u)} for u in users_qs]
+        users_qs = User.objects.filter(is_active=True).order_by("first_name")
+        telecallers = []
+        for u in users_qs:
+            user_leads = Lead.objects.filter(assigned_to=u)
+            # Exclude Won (Stage 3) and Lost (Stage 4) from total_assigned_leads
+            active_user_leads = user_leads.exclude(
+                Q(pipeline_stage_id__in=[3, 4]) | 
+                Q(pipeline_stage__name__icontains="won") | 
+                Q(pipeline_stage__name__icontains="loss")
+            )
+            
+            total_assigned = active_user_leads.count()
+            followup_count = active_user_leads.filter(Q(pipeline_stage_id=2) | Q(pipeline_stage__name__icontains="follow")).count()
+            new_count = active_user_leads.filter(Q(pipeline_stage_id=1) | Q(pipeline_stage__name__icontains="new")).count()
+            unreachable_count = active_user_leads.filter(
+                Q(pipeline_stage_id__in=[5, 7]) | 
+                Q(pipeline_stage__name__icontains="unreach") | 
+                Q(pipeline_stage__name__icontains="contact")
+            ).count()
+            
+            role_str = "Admin" if (getattr(u, 'is_superuser', False) or str(getattr(u, 'user_type', '')).lower() == 'admin') else "Telecaller"
+            
+            telecallers.append({
+                "id": u.id,
+                "name": get_user_display_name(u),
+                "role": role_str,
+                "total_assigned_leads": total_assigned,
+                "followup_leads_count": followup_count,
+                "new_leads_count": new_count,
+                "unreachable_leads_count": unreachable_count,
+                "assigned_leads_count": total_assigned
+            })
+
+        # 1. Lost Reasons (from SelectTag)
+        loss_reasons_qs = SelectTag.objects.filter(stages_id=9).order_by("id")
+        if not loss_reasons_qs.exists():
+            loss_reasons_qs = SelectTag.objects.filter(
+                Q(name__icontains="issue") | Q(name__icontains="not interested") | Q(name__icontains="no response") | Q(name__icontains="competitor") | Q(name__icontains="eligible")
+            ).order_by("id")
+        if not loss_reasons_qs.exists():
+            loss_reasons_qs = SelectTag.objects.all().order_by("id")
+
+        lost_reasons = [{"id": r.id, "name": getattr(r, 'display_value', None) or r.name} for r in loss_reasons_qs]
+
+        # 2. Courses (from CourseName)
+        courses_qs = CourseName.objects.all().order_by("coursename")
+        courses = [{"id": c.id, "name": getattr(c, 'coursename', getattr(c, 'name', str(c)))} for c in courses_qs]
 
         priorities_qs = Priority.objects.filter(is_active=True).order_by("id")
         if not priorities_qs.exists():
@@ -687,13 +741,15 @@ def get_filter_dropdowns_admin():
         ]
 
         return {
+            "lost_reasons": lost_reasons,
+            "telecallers": telecallers,
+            "courses": courses,
+            "lead_sources": lead_sources,
             "pipelines": pipelines,
             "pipeline_stages": pipelines,  # 👈 Guarantees Education & Product appear in Pipeline* dropdown!
             "stages": pipeline_stages,     # 👈 Preserves actual stage options under 'stages'
-            "lead_sources": lead_sources,
             "campaigns": campaigns,
             "course_plans": course_plans,
-            "telecallers": telecallers,
             "priority_tags": priority_tags,
             "tags": priority_tags
         }
@@ -1399,5 +1455,126 @@ def edit_lead_admin(**data):
     except Exception as e:
         raise APIException(str(e))
 
+
+# ----------------------------- delete_lead_admin service -----------------------------
+
+def delete_lead_admin(user, lead_id):
+    """
+    Admin Lead Deletion Service:
+    1. Validates lead exists in telecalling_lead.
+    2. Executes lead.save_delete(user_id=user.id):
+       - Backs up full lead JSON data to telecalling_deleted_data_log with deleted_by & deleted_at.
+       - CASCADE deletes all connected rows across CallDetails, FollowUp, PaymentInfo, PaymentHistory, LossLeadDetail, AdminLossActionLog, AdminApprovedLossLead.
+    """
+    try:
+        if not lead_id:
+            raise APIException("Lead ID is required")
+
+        lead = Lead.objects.filter(id=lead_id).first()
+        if not lead:
+            raise APIException(f"Lead with ID {lead_id} not found")
+
+        lead_name = lead.full_name
+        user_id = user.id if (user and getattr(user, 'is_authenticated', False)) else None
+
+        # Execute safe delete (Audit Log + CASCADE Delete)
+        lead.save_delete(user_id=user_id)
+
+        return {
+            "status": "success",
+            "message": f"Lead '{lead_name}' (ID: {lead_id}) deleted successfully!",
+            "deleted_lead_id": lead_id,
+            "deleted_by_id": user_id
+        }
+    except Exception as e:
+        raise APIException(str(e))
+
+
+# ----------------------------- reassign_lead_admin service -----------------------------
+
+def reassign_lead_admin(user, lead_id, new_telecaller_id, reason=None):
+    """
+    Admin Reassign Lead Service:
+    1. Validates lead and new_telecaller exist.
+    2. Collects previous telecaller's call details into JSON array.
+    3. Creates audit record in AdminLeadReassignHistory (adm_lead_reassign_history table).
+    4. Updates lead.assigned_to = new_telecaller.
+    5. If lead was in Loss stage, restores pipeline_stage to Follow-up (Stage 2) or New Lead (Stage 1).
+    """
+    try:
+        if not lead_id:
+            raise APIException("Lead ID is required")
+        if not new_telecaller_id:
+            raise APIException("New telecaller ID is required")
+
+        lead = Lead.objects.filter(id=lead_id).first()
+        if not lead:
+            raise APIException(f"Lead with ID {lead_id} not found")
+
+        new_telecaller = User.objects.filter(id=new_telecaller_id, is_active=True).first()
+        if not new_telecaller:
+            raise APIException(f"Telecaller with ID {new_telecaller_id} not found or inactive")
+
+        previous_telecaller = lead.assigned_to
+        reassigned_by = user if (user and getattr(user, 'is_authenticated', False)) else None
+        reassigned_by_name = get_user_display_name(reassigned_by) if reassigned_by else "Admin"
+
+        # Collect previous call history JSON from CallDetails table
+        calls_qs = CallDetails.objects.filter(lead=lead).order_by('-created_at')
+        if previous_telecaller:
+            calls_qs = calls_qs.filter(telecaller=previous_telecaller)
+
+        call_history_json = []
+        for c in calls_qs[:20]:
+            call_history_json.append({
+                "call_id": c.id,
+                "telecaller_id": c.telecaller_id,
+                "telecaller_name": get_user_display_name(c.telecaller),
+                "connection_status": c.connection_status,
+                "stage_name": c.stage.name if c.stage else None,
+                "select_tag_name": getattr(c.select_tag, 'display_value', None) or (c.select_tag.name if c.select_tag else None),
+                "conversation_summary": c.conversation_summary,
+                "duration_seconds": c.duration_seconds,
+                "called_at": c.called_at.isoformat() if c.called_at else None,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            })
+
+        # Insert audit log into adm_lead_reassign_history table
+        history_rec = AdminLeadReassignHistory.objects.create(
+            lead=lead,
+            previous_telecaller=previous_telecaller,
+            new_telecaller=new_telecaller,
+            reassigned_by=reassigned_by,
+            attended_calls_count=len(call_history_json),
+            previous_call_history=call_history_json,
+            reassigned_reason=reason or "Reassigned via Admin API",
+            created_by=reassigned_by_name
+        )
+
+        # Update Lead assigned_to & restore stage if in Loss stage
+        lead.assigned_to = new_telecaller
+        if lead.pipeline_stage_id in [4] or (lead.pipeline_stage and "loss" in lead.pipeline_stage.name.lower()):
+            followup_stage = PipelineStage.objects.filter(id=2).first() or PipelineStage.objects.filter(name__icontains="follow").first()
+            if followup_stage:
+                lead.pipeline_stage = followup_stage
+            lead.current_status = "working"
+
+        # Auto-delete from AdminApprovedLossLead table since lead is no longer a permanent loss!
+        AdminApprovedLossLead.objects.filter(lead=lead).delete()
+
+        lead.save()
+
+        new_telecaller_name = get_user_display_name(new_telecaller)
+
+        return {
+            "status": "success",
+            "message": f"Lead '{lead.full_name}' reassigned to '{new_telecaller_name}' successfully!",
+            "reassign_history_id": history_rec.id,
+            "lead_id": lead.id,
+            "previous_telecaller": get_user_display_name(previous_telecaller),
+            "new_telecaller": new_telecaller_name,
+            "new_telecaller_id": new_telecaller.id,
+            "attended_calls_count": len(call_history_json)
+        }
     except Exception as e:
         raise APIException(str(e))

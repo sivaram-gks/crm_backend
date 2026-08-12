@@ -3,7 +3,8 @@ from .views.lead_views import (
     ExportAllLeadsAdmin, FetchAllLeadsAdmin, AddNewLeadAdmin, 
     FetchPipelineLeadsAdmin, GetFilterDropdownsAdmin, UploadLeadExcelAdmin, 
     FetchLeadDetailsAdmin, GetMarkAsWonInfoAdmin, MarkAsWonAdmin, 
-    GetMarkAsLostInfoAdmin, MarkAsLostAdmin, EditLeadAdmin
+    GetMarkAsLostInfoAdmin, MarkAsLostAdmin, EditLeadAdmin, DeleteLeadAdmin,
+    ReassignLeadAdmin
 )
 from .views.payment_views import (
     FetchAllPendingPaymentsAdmin, ExportPendingPaymentsAdmin,
@@ -12,6 +13,11 @@ from .views.payment_views import (
 from .views.loss_lead_approval_views import (
     FetchLossLeadApprovalRequestsAdmin, GetLossLeadApprovalFilterDropdownsAdmin,
     ExportLossLeadApprovalRequestsAdmin, ActionLossLeadApprovalAdmin
+)
+from .views.performance_views import (
+    FetchPerformanceOverviewAdmin, AssignUsersToTeamAdmin,
+    UpdateTelecallerTargetAdmin, GetPerformanceFilterDropdownsAdmin,
+    ExportPerformanceOverviewAdmin
 )
 
 urlpatterns = [
@@ -28,6 +34,8 @@ urlpatterns = [
     path('mark_as_lost_admin', MarkAsLostAdmin.as_view()),
     path('edit_lead_admin', EditLeadAdmin.as_view()),
     path('edit_lead', EditLeadAdmin.as_view()),
+    path('delete_lead_admin', DeleteLeadAdmin.as_view()),
+    path('reassign_lead_admin', ReassignLeadAdmin.as_view()),
     
     # 💰 Pending Payments APIs
     path('fetch_all_pending_payments_admin', FetchAllPendingPaymentsAdmin.as_view()),
@@ -39,4 +47,11 @@ urlpatterns = [
     path('get_loss_lead_approval_filter_dropdowns_admin', GetLossLeadApprovalFilterDropdownsAdmin.as_view()),
     path('export_loss_lead_approval_requests_admin', ExportLossLeadApprovalRequestsAdmin.as_view()),
     path('action_loss_lead_approval_admin', ActionLossLeadApprovalAdmin.as_view()),
+
+    # 📊 Performance Overview APIs
+    path('fetch_performance_overview_admin', FetchPerformanceOverviewAdmin.as_view()),
+    path('assign_users_to_team_admin', AssignUsersToTeamAdmin.as_view()),
+    path('update_telecaller_target_admin', UpdateTelecallerTargetAdmin.as_view()),
+    path('get_performance_filter_dropdowns_admin', GetPerformanceFilterDropdownsAdmin.as_view()),
+    path('export_performance_overview_admin', ExportPerformanceOverviewAdmin.as_view()),
 ]

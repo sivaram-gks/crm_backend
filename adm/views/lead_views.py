@@ -9,7 +9,7 @@ from ..services.lead_services import (
     upload_lead_excel_admin, export_all_leads_admin, get_filter_dropdowns_admin,
     fetch_pipeline_leads_admin, fetch_lead_details_admin,
     get_mark_as_won_info_admin, mark_as_won_admin, get_mark_as_lost_info_admin, 
-    mark_as_lost_admin, edit_lead_admin
+    mark_as_lost_admin, edit_lead_admin, delete_lead_admin, reassign_lead_admin
 )
 from telecalling.tasks.api_log_task import api_history_log
 
@@ -465,7 +465,48 @@ class EditLeadAdmin(APIView):
         api_history_log(log_data)
 
         return Response(result, status=status.HTTP_200_OK)
-    
-    
-    
-    
+
+
+@authentication_classes([])
+@permission_classes([])
+class DeleteLeadAdmin(APIView):
+    def post(self, request):
+        lead_id = request.data.get("lead_id") or request.data.get("id")
+        result = delete_lead_admin(request.user, lead_id)
+
+        log_data = {
+            'user_id': request.user.id if getattr(request.user, 'id', None) else None,
+            'api_name': request.path,
+            'method': request.method,
+            'request_payload': request.data,
+            'response_payload': result,
+            'status_code': 200
+        }
+        api_history_log(log_data)
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+@authentication_classes([])
+@permission_classes([])
+class ReassignLeadAdmin(APIView):
+    def post(self, request):
+        lead_id = request.data.get("lead_id") or request.data.get("id")
+        new_telecaller_id = request.data.get("new_telecaller_id") or request.data.get("telecaller_id") or request.data.get("assigned_to_id")
+        reason = request.data.get("reason") or request.data.get("remarks") or request.data.get("reassigned_reason")
+
+        result = reassign_lead_admin(request.user, lead_id, new_telecaller_id, reason)
+
+        log_data = {
+            'user_id': request.user.id if getattr(request.user, 'id', None) else None,
+            'api_name': request.path,
+            'method': request.method,
+            'request_payload': request.data,
+            'response_payload': result,
+            'status_code': 200
+        }
+        api_history_log(log_data)
+
+        return Response(result, status=status.HTTP_200_OK)
+
+

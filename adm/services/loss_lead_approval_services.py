@@ -25,11 +25,13 @@ def fetch_loss_lead_approval_requests_admin(**data):
     try:
         today = timezone.now().date()
         
-        # 1. Base Queryset for Loss Stage Leads (Stage 4 or Loss status)
         loss_stage = PipelineStage.objects.filter(id=4).first() or PipelineStage.objects.filter(Q(name__icontains="loss") | Q(name__icontains="lost")).first()
+        approved_lead_ids = AdminApprovedLossLead.objects.values_list("lead_id", flat=True)
         
         base_qs = Lead.objects.filter(
             Q(pipeline_stage=loss_stage) | Q(current_status__iexact="loss")
+        ).exclude(
+            id__in=approved_lead_ids
         ).select_related(
             "assigned_to", "pipeline_stage", "campaign", "lead_source", "course_plan", "course_name"
         ).order_by("-updated_at", "-created_at")
@@ -150,10 +152,21 @@ def fetch_loss_lead_approval_requests_admin(**data):
             elif loss_detail and loss_detail.detailed_reason:
                 loss_reason_str = loss_detail.detailed_reason
 
-            # Last Conversation Outcome & Course Name
-            last_conversation_outcome = getattr(lead.course_name, 'coursename', None) or (
-                latest_call.conversation_summary if (latest_call and latest_call.conversation_summary) else "-"
-            )
+            # Last Conversation Outcome (actual call disposition / outcome / summary)
+            last_conversation_outcome = "-"
+            if latest_call:
+                call_tag = None
+                if getattr(latest_call, 'select_tag', None):
+                    call_tag = getattr(latest_call.select_tag, 'display_value', None) or latest_call.select_tag.name
+                elif getattr(latest_call, 'stage', None):
+                    call_tag = getattr(latest_call.stage, 'display_value', None) or latest_call.stage.name
+
+                last_conversation_outcome = (
+                    latest_call.conversation_summary or 
+                    call_tag or 
+                    latest_call.connection_status or 
+                    "-"
+                )
 
             # Last Contacted Date & Time
             last_contacted_str = "-"
@@ -189,6 +202,8 @@ def fetch_loss_lead_approval_requests_admin(**data):
                 "last_contacted": last_contacted_str,
                 "inquiry_date": inquiry_date_str,
                 "lead_age": lead_age_str,
+                "course": getattr(lead.course_name, 'coursename', None) or (lead.course.name if lead.course else "-"),
+                "lead_source": lead.lead_source.name if lead.lead_source else "-",
                 "approval_status": "pending_approval"
             })
 
@@ -233,7 +248,37 @@ def get_loss_lead_approval_filter_dropdowns_admin():
         loss_reasons = [{"id": r.id, "name": getattr(r, 'display_value', None) or r.name} for r in loss_reasons_qs]
 
         users_qs = User.objects.filter(is_active=True).order_by("first_name")
-        telecallers = [{"id": u.id, "name": get_user_display_name(u)} for u in users_qs]
+        telecallers = []
+        for u in users_qs:
+            user_leads = Lead.objects.filter(assigned_to=u)
+            # Exclude Won (Stage 3) and Lost (Stage 4) from total_assigned_leads
+            active_user_leads = user_leads.exclude(
+                Q(pipeline_stage_id__in=[3, 4]) | 
+                Q(pipeline_stage__name__icontains="won") | 
+                Q(pipeline_stage__name__icontains="loss")
+            )
+            
+            total_assigned = active_user_leads.count()
+            followup_count = active_user_leads.filter(Q(pipeline_stage_id=2) | Q(pipeline_stage__name__icontains="follow")).count()
+            new_count = active_user_leads.filter(Q(pipeline_stage_id=1) | Q(pipeline_stage__name__icontains="new")).count()
+            unreachable_count = active_user_leads.filter(
+                Q(pipeline_stage_id__in=[5, 7]) | 
+                Q(pipeline_stage__name__icontains="unreach") | 
+                Q(pipeline_stage__name__icontains="contact")
+            ).count()
+            
+            role_str = "Admin" if (getattr(u, 'is_superuser', False) or str(getattr(u, 'user_type', '')).lower() == 'admin') else "Telecaller"
+            
+            telecallers.append({
+                "id": u.id,
+                "name": get_user_display_name(u),
+                "role": role_str,
+                "total_assigned_leads": total_assigned,
+                "followup_leads_count": followup_count,
+                "new_leads_count": new_count,
+                "unreachable_leads_count": unreachable_count,
+                "assigned_leads_count": total_assigned
+            })
 
         courses_qs = CourseName.objects.all().order_by("coursename")
         courses = [{"id": c.id, "name": getattr(c, 'coursename', getattr(c, 'name', str(c)))} for c in courses_qs]
@@ -476,6 +521,9 @@ def action_loss_lead_approval_admin(**data):
             lead.current_status = "working"
             lead.save()
 
+            # Clean up from AdminApprovedLossLead table if it existed!
+            AdminApprovedLossLead.objects.filter(lead=lead).delete()
+
             created_by_user = get_user_display_name(admin_user) or "Admin"
 
             # Record Action Audit Log
@@ -509,6 +557,9 @@ def action_loss_lead_approval_admin(**data):
                 lead.pipeline_stage = followup_stage
             lead.current_status = "working"
             lead.save()
+
+            # Clean up from AdminApprovedLossLead table if it existed!
+            AdminApprovedLossLead.objects.filter(lead=lead).delete()
 
             created_by_user = get_user_display_name(admin_user) or "Admin"
 

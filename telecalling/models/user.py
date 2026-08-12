@@ -72,6 +72,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     address = models.CharField(max_length=500, null = True)
     wrong_pwd_counts = models.IntegerField(default=0)
     role = models.ManyToManyField(Role,related_name="user")
+    team = models.ForeignKey('adm.Team', on_delete=models.SET_NULL, null=True, blank=True, related_name='members')
     # starting_date = models.DateField()"
     starting_date = models.DateField(default=date.today)  # Sets today's date by default
     ending_date = models.DateField(null=True,blank=True)
