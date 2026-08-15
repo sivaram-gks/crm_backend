@@ -178,7 +178,7 @@ def fetch_all_leads_admin(**data):
 
             if lead.priority:
                 tag_name = getattr(lead.priority, 'display_value', None) or lead.priority.name or "-"
-                tag_id_val = lead.priority_id
+                tag_id_val = lead.priority.id
 
             c_plan_name = None
             if lead.course_plan:
@@ -366,7 +366,7 @@ def add_new_lead_admin(user, **data):
             assigned_to_id=assigned_to_id,
             enquiry_date=data.get("enquiry_date") or timezone.now(),
             current_status="working",
-            priority_id=data.get("priority_id") or 4,
+            priority_id=data.get("priority_id") or data.get("priority") or None,
             created_by=created_by_info
         )
         return {

@@ -83,11 +83,23 @@ def fetch_loss_lead_approval_requests_admin(**data):
                     filter_to = None
 
         if filter_from and filter_to:
-            base_qs = base_qs.filter(enquiry_date__date__range=[filter_from, filter_to])
+            base_qs = base_qs.filter(
+                Q(loss_detail__created_at__date__range=[filter_from, filter_to]) |
+                Q(updated_at__date__range=[filter_from, filter_to]) |
+                Q(enquiry_date__date__range=[filter_from, filter_to])
+            ).distinct()
         elif filter_from:
-            base_qs = base_qs.filter(enquiry_date__date__gte=filter_from)
+            base_qs = base_qs.filter(
+                Q(loss_detail__created_at__date__gte=filter_from) |
+                Q(updated_at__date__gte=filter_from) |
+                Q(enquiry_date__date__gte=filter_from)
+            ).distinct()
         elif filter_to:
-            base_qs = base_qs.filter(enquiry_date__date__lte=filter_to)
+            base_qs = base_qs.filter(
+                Q(loss_detail__created_at__date__lte=filter_to) |
+                Q(updated_at__date__lte=filter_to) |
+                Q(enquiry_date__date__lte=filter_to)
+            ).distinct()
 
         # 4. Additional DB-Driven Dropdown Filters
         loss_reason_val = data.get("loss_reason_id") or data.get("reason_id")

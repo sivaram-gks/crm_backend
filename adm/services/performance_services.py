@@ -150,17 +150,19 @@ def fetch_performance_overview_admin(data):
             total_fups = followups_done + pending_followups
             if total_fups > 0:
                 fup_score = (followups_done / total_fups) * 30.0
+            elif leads_assigned > 0 or calls_made > 0 or admissions > 0:
+                fup_score = 30.0 # Full score if active telecaller has zero pending followups
             else:
-                fup_score = 30.0 # Full score if zero pending
+                fup_score = 0.0 # Zero activity telecaller gets 0 score
 
             total_score_val = adm_score + calls_score + fup_score
             performance_score = round(total_score_val)
 
             # 10. Rating Badges & Special Overachiever Badges
-            if performance_score >= 80:
+            if performance_score >= 70:
                 rating_label = "Good"
                 rating_badge_color = "#E8F5E9" # Green
-            elif performance_score >= 50:
+            elif performance_score >= 45:
                 rating_label = "Average"
                 rating_badge_color = "#FFFDE7" # Yellow
             else:
@@ -168,9 +170,15 @@ def fetch_performance_overview_admin(data):
                 rating_badge_color = "#FFEBEE" # Red
 
             special_badge = None
-            if admissions > target_admissions:
-                pct_over = round(((admissions - target_admissions) / target_admissions) * 100)
+            if admissions > target_admissions and calls_made > target_calls and pending_followups == 0:
+                special_badge = f"Triple Crown MVP ({round(adm_pct * 100)}% Target)"
+            elif admissions > target_admissions:
                 special_badge = f"Star Performer ({round(adm_pct * 100)}% Target)"
+            elif calls_made > target_calls:
+                c_pct = round((calls_made / target_calls) * 100) if target_calls > 0 else 100
+                special_badge = f"Call Champion ({c_pct}% Calls Target)"
+            elif pending_followups == 0 and followups_done > 0:
+                special_badge = "100% Follow-up Discipline"
 
             # 11. Avg Calling Duration
             avg_duration_sec = CallDetails.objects.filter(
